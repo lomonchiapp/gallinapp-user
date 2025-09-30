@@ -1,24 +1,64 @@
-import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native';
-import { Stack } from 'expo-router';
+/**
+ * Layout principal de la aplicación
+ */
+
+import { Drawer } from 'expo-router/drawer';
 import { StatusBar } from 'expo-status-bar';
-import 'react-native-reanimated';
+import React from 'react';
+import { useColorScheme } from 'react-native';
+import { ThemeProvider } from '../components/theme-provider';
+import '../src/components/config/firebase'; // Importamos la configuración de Firebase ya inicializada
+import AuthGuard from '../src/components/layouts/AuthGuard';
+import CustomDrawerContent from './_drawer';
 
-import { useColorScheme } from '@/hooks/use-color-scheme';
-
-export const unstable_settings = {
-  anchor: '(tabs)',
-};
-
-export default function RootLayout() {
+function RootLayout() {
   const colorScheme = useColorScheme();
 
   return (
-    <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
-      <Stack>
-        <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-        <Stack.Screen name="modal" options={{ presentation: 'modal', title: 'Modal' }} />
-      </Stack>
-      <StatusBar style="auto" />
+    <ThemeProvider value={colorScheme === 'dark' ? 'dark' : 'light'}>
+      <StatusBar style={colorScheme === 'dark' ? 'light' : 'dark'} />
+      <AuthGuard>
+        <Drawer
+          drawerContent={(props) => <CustomDrawerContent {...props} />}
+          screenOptions={{
+            headerShown: false,
+            drawerStyle: {
+              backgroundColor: '#fff',
+            },
+          }}
+        >
+          <Drawer.Screen
+            name="(tabs)"
+            options={{
+              title: 'Inicio',
+              headerShown: false,
+            }}
+          />
+          <Drawer.Screen
+            name="historial-mortalidad"
+            options={{
+              title: 'Historial de Mortalidad',
+              headerShown: false,
+            }}
+          />
+          <Drawer.Screen
+            name="profile"
+            options={{
+              title: 'Mi Perfil',
+              headerShown: false,
+            }}
+          />
+          <Drawer.Screen
+            name="settings"
+            options={{
+              title: 'Configuración',
+              headerShown: false,
+            }}
+          />
+        </Drawer>
+      </AuthGuard>
     </ThemeProvider>
   );
 }
+
+export default RootLayout;
