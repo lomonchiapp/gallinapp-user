@@ -298,3 +298,10 @@ export const obtenerTendenciasHistoricas = async (
 
 
 
+
+
+
+
+
+
+

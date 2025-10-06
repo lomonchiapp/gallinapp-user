@@ -256,3 +256,10 @@ export const calcularEstadisticasLote = async (
 
 
 
+
+
+
+
+
+
+

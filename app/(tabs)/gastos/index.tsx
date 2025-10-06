@@ -11,7 +11,11 @@ import Card from '../../../src/components/ui/Card';
 import GastoSheet from '../../../src/components/ui/GastoSheet';
 import { colors } from '../../../src/constants/colors';
 import { useArticulosStore } from '../../../src/stores/articulosStore';
+import { useEngordeStore } from '../../../src/stores/engordeStore';
 import { useGastosStore } from '../../../src/stores/gastosStore';
+import { useLevantesStore } from '../../../src/stores/levantesStore';
+import { usePonedorasStore } from '../../../src/stores/ponedorasStore';
+import { TipoAve } from '../../../src/types';
 
 export default function GastosScreen() {
   const { registrarGasto, tipo, nombre } = useLocalSearchParams<{
@@ -24,13 +28,33 @@ export default function GastosScreen() {
   const [gastoSheetVisible, setGastoSheetVisible] = useState(false);
   const [loteSeleccionado, setLoteSeleccionado] = useState<{
     id: string;
-    tipo: string;
+    tipo: TipoAve;
     nombre: string;
   } | null>(null);
   
   const { articulos, loadArticulos, isLoading: articulosLoading, error: articulosError } = useArticulosStore();
   const { gastos, estadisticas, cargarGastos, cargarEstadisticas, isLoading: gastosLoading } = useGastosStore();
-  
+  const { lotes: lotesLevantes } = useLevantesStore();
+  const { lotes: lotesEngorde } = useEngordeStore();
+  const { lotes: lotesPonedoras } = usePonedorasStore();
+
+  // Función auxiliar para obtener el nombre del lote
+  const obtenerNombreLote = (loteId: string, tipoLote: TipoAve): string => {
+    switch (tipoLote) {
+      case TipoAve.POLLO_LEVANTE:
+        const loteLevante = lotesLevantes.find(lote => lote.id === loteId);
+        return loteLevante?.nombre || 'Lote no encontrado';
+      case TipoAve.POLLO_ENGORDE:
+        const loteEngorde = lotesEngorde.find(lote => lote.id === loteId);
+        return loteEngorde?.nombre || 'Lote no encontrado';
+      case TipoAve.PONEDORA:
+        const lotePonedora = lotesPonedoras.find(lote => lote.id === loteId);
+        return lotePonedora?.nombre || 'Lote no encontrado';
+      default:
+        return 'Tipo de lote desconocido';
+    }
+  };
+
   // Cargar artículos y gastos al montar el componente
   React.useEffect(() => {
     console.log('🔄 Cargando artículos y gastos...');
@@ -52,7 +76,7 @@ export default function GastosScreen() {
     if (registrarGasto && tipo && nombre) {
       setLoteSeleccionado({
         id: registrarGasto,
-        tipo,
+        tipo: tipo as TipoAve,
         nombre: decodeURIComponent(nombre)
       });
       setGastoSheetVisible(true);
@@ -65,16 +89,16 @@ export default function GastosScreen() {
 
   const handleVerArticulo = (articuloId: string) => {
     router.push({
-      pathname: '/(modules)/gastos/articulo/[id]',
+      pathname: '/(tabs)/gastos/articulo/[id]',
       params: { id: articuloId }
     });
   };
 
   const handleVerHistorialGastos = () => {
-    router.push('/(modules)/gastos/historial');
+    Alert.alert('Info', 'El historial completo se muestra en esta misma pantalla');
   };
   
-  const handleRegistrarGasto = (loteId: string, tipo: string, nombre: string) => {
+  const handleRegistrarGasto = (loteId: string, tipo: TipoAve, nombre: string) => {
     setLoteSeleccionado({ id: loteId, tipo, nombre });
     setGastoSheetVisible(true);
   };
@@ -261,7 +285,7 @@ export default function GastosScreen() {
                   {gasto.loteId && (
                     <View style={styles.gastoLoteInfo}>
                       <Text style={styles.gastoLoteText}>
-                        <Text style={styles.gastoLoteLabel}>Lote:</Text> {gasto.loteId}
+                        <Text style={styles.gastoLoteLabel}>Lote:</Text> {obtenerNombreLote(gasto.loteId, gasto.tipoLote)}
                       </Text>
                       <Text style={styles.gastoTipoText}>
                         <Text style={styles.gastoTipoLabel}>Tipo:</Text> {gasto.tipoLote}
@@ -287,7 +311,12 @@ export default function GastosScreen() {
           loteId={loteSeleccionado.id}
           tipoLote={loteSeleccionado.tipo}
           loteNombre={loteSeleccionado.nombre}
-          articulos={articulos.map(a => ({ id: a.id, nombre: a.nombre }))}
+          articulos={articulos.map(a => ({
+            id: a.id,
+            nombre: a.nombre,
+            costoFijo: a.costoFijo,
+            precio: a.precio
+          }))}
         />
       )}
     </ScrollView>

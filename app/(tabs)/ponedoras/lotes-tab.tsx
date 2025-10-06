@@ -12,6 +12,7 @@ import Card from '../../../src/components/ui/Card';
 import CostUnitarioBadge from '../../../src/components/ui/CostUnitarioBadge';
 import GastoSheet from '../../../src/components/ui/GastoSheet';
 import { colors } from '../../../src/constants/colors';
+import { useCostUnitario } from '../../../src/hooks/useCostUnitario';
 import { useGalpones } from '../../../src/hooks/useGalpones';
 import { useGastosSubscription } from '../../../src/hooks/useGastosSubscription';
 import { EggTrackingInfo, getEggTrackingInfoFromStore } from '../../../src/services/tracking-optimized.service';
@@ -45,6 +46,9 @@ export default function LotesTab() {
   
   // Estado para tracking de recolección de huevos
   const [eggTracking, setEggTracking] = useState<EggTrackingInfo[]>([]);
+
+  // Estado para costos unitarios
+  const [costosUnitarios, setCostosUnitarios] = useState<{[loteId: string]: {costoUnitario: number, isLoading: boolean}}>({});
   
   const { lotes, isLoading, estadisticasLotes, cargarLotes, cargarEstadisticasLotes, suscribirseAPonedoras } = usePonedorasStore();
   const { articulos, loadArticulos } = useArticulosStore();
@@ -52,15 +56,38 @@ export default function LotesTab() {
   const { gastos, estadisticasGastos } = useGastosSubscription(TipoAve.PONEDORA);
   const { galpones, cargarGalpones } = useGalpones();
   
-  // Calcular costos unitarios para todos los lotes de una vez
-  const costosUnitarios = useMemo(() => {
-    const costos: {[loteId: string]: {costoUnitario: number, isLoading: boolean}} = {};
-    // Por ahora retornamos valores por defecto, luego implementaremos la lógica real
-    lotes.forEach(lote => {
-      costos[lote.id] = { costoUnitario: 0, isLoading: false };
-    });
-    return costos;
-  }, [lotes, gastos]);
+  // Calcular costos unitarios cuando cambien los lotes
+  useEffect(() => {
+    if (lotes && lotes.length > 0) {
+      const calcularCostos = async () => {
+        const costos: {[loteId: string]: {costoUnitario: number, isLoading: boolean}} = {};
+
+        // Inicializar todos los lotes como cargando
+        lotes.forEach(lote => {
+          costos[lote.id] = { costoUnitario: 0, isLoading: true };
+        });
+        setCostosUnitarios(costos);
+
+        // Calcular costo para cada lote
+        for (const lote of lotes) {
+          try {
+            const costoHook = useCostUnitario(lote.id, TipoAve.PONEDORA, lote.cantidadActual);
+            costos[lote.id] = {
+              costoUnitario: costoHook.costoUnitario,
+              isLoading: costoHook.isLoading
+            };
+          } catch (error) {
+            console.error(`Error calculando costo para lote ${lote.id}:`, error);
+            costos[lote.id] = { costoUnitario: 0, isLoading: false };
+          }
+        }
+
+        setCostosUnitarios(costos);
+      };
+
+      calcularCostos();
+    }
+  }, [lotes]);
   
   // Debug: Log del estado inicial
   console.log('🔍 Estado inicial:', { busqueda, ordenamiento, ordenDescendente, lotesCount: lotes.length });
@@ -389,7 +416,7 @@ export default function LotesTab() {
                         <Text style={StyleSheet.flatten([styles.locationText, { color: badgeColors.badgeText }])}>{badgeLabel}</Text>
                       </View>
                     )}
-                    {!loadingCosto && costoUnitario > 0 && (
+                    {!loadingCosto && (
                       <CostUnitarioBadge
                         costoTotal={costoUnitario * lote.cantidadActual}
                         cantidadActual={lote.cantidadActual}

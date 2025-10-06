@@ -618,6 +618,9 @@ function TabProduccion({
 
 // Componente Tab Gastos
 function TabGastos({ gastos, onRegistrarGasto }: { gastos: any[]; onRegistrarGasto: () => void }) {
+  // Calcular el total de gastos
+  const totalGastos = gastos.reduce((total, gasto) => total + gasto.total, 0);
+
   return (
     <View style={styles.tabContent}>
       <View style={styles.tabHeader}>
@@ -638,21 +641,39 @@ function TabGastos({ gastos, onRegistrarGasto }: { gastos: any[]; onRegistrarGas
           </Text>
         </Card>
       ) : (
-        <View style={styles.gastosList}>
-          {gastos.map((gasto) => (
-            <Card key={gasto.id} style={styles.gastoCard}>
-              <View style={styles.gastoHeader}>
-                <Text style={styles.gastoConcepto}>{gasto.articuloNombre}</Text>
-                <Text style={styles.gastoMonto}>RD${gasto.total.toFixed(2)}</Text>
+        <View>
+          {/* Resumen de gastos totales */}
+          <Card style={styles.gastosSummaryCard}>
+            <Text style={styles.cardTitle}>Resumen de Gastos</Text>
+            <View style={styles.gastosSummaryGrid}>
+              <View style={styles.gastosSummaryItem}>
+                <Text style={styles.gastosSummaryValue}>RD${totalGastos.toFixed(2)}</Text>
+                <Text style={styles.gastosSummaryLabel}>Total Gastos</Text>
               </View>
-              <Text style={styles.gastoFecha}>
-                {formatDate(gasto.fecha)}
-              </Text>
-              {gasto.descripcion && (
-                <Text style={styles.gastoDescripcion}>{gasto.descripcion}</Text>
-              )}
-            </Card>
-          ))}
+              <View style={styles.gastosSummaryItem}>
+                <Text style={styles.gastosSummaryValue}>{gastos.length}</Text>
+                <Text style={styles.gastosSummaryLabel}>Registros</Text>
+              </View>
+            </View>
+          </Card>
+
+          {/* Lista de gastos */}
+          <View style={styles.gastosList}>
+            {gastos.map((gasto) => (
+              <Card key={gasto.id} style={styles.gastoCard}>
+                <View style={styles.gastoHeader}>
+                  <Text style={styles.gastoConcepto}>{gasto.articuloNombre}</Text>
+                  <Text style={styles.gastoMonto}>RD${gasto.total.toFixed(2)}</Text>
+                </View>
+                <Text style={styles.gastoFecha}>
+                  {formatDate(gasto.fecha)}
+                </Text>
+                {gasto.descripcion && (
+                  <Text style={styles.gastoDescripcion}>{gasto.descripcion}</Text>
+                )}
+              </Card>
+            ))}
+          </View>
         </View>
       )}
     </View>
@@ -1086,6 +1107,31 @@ const styles = StyleSheet.create({
   },
   gastosList: {
     gap: 12,
+  },
+  gastosSummaryCard: {
+    marginBottom: 16,
+    backgroundColor: colors.primary + '05',
+    borderColor: colors.primary + '20',
+    borderWidth: 1,
+  },
+  gastosSummaryGrid: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+  },
+  gastosSummaryItem: {
+    alignItems: 'center',
+    flex: 1,
+  },
+  gastosSummaryValue: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: colors.primary,
+  },
+  gastosSummaryLabel: {
+    fontSize: 12,
+    color: colors.textMedium,
+    marginTop: 4,
+    textAlign: 'center',
   },
   gastoCard: {
     padding: 16,

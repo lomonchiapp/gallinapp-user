@@ -12,6 +12,7 @@ import Card from '../../../src/components/ui/Card';
 import CostUnitarioBadge from '../../../src/components/ui/CostUnitarioBadge';
 import GastoSheet from '../../../src/components/ui/GastoSheet';
 import { colors } from '../../../src/constants/colors';
+import { useCostUnitario } from '../../../src/hooks/useCostUnitario';
 import { useGalpones } from '../../../src/hooks/useGalpones';
 import { useGastosSubscription } from '../../../src/hooks/useGastosSubscription';
 import { getWeightTrackingInfoFromStore, WeightTrackingInfo } from '../../../src/services/tracking-optimized.service';
@@ -48,6 +49,9 @@ export default function LotesTab() {
   // Estado para tracking de pesaje
   const [weightTracking, setWeightTracking] = useState<WeightTrackingInfo[]>([]);
 
+  // Estado para costos unitarios
+  const [costosUnitarios, setCostosUnitarios] = useState<{[loteId: string]: {costoUnitario: number, isLoading: boolean}}>({});
+
   // Colores temáticos para el módulo de engorde
   const LOCATION_COLORS = {
     badgeBg: colors.engorde + '15',
@@ -58,15 +62,38 @@ export default function LotesTab() {
     badgeText: colors.textMedium,
   };
 
-  // Calcular costos unitarios para todos los lotes de una vez
-  const costosUnitarios = useMemo(() => {
-    const costos: {[loteId: string]: {costoUnitario: number, isLoading: boolean}} = {};
-    // Por ahora retornamos valores por defecto, luego implementaremos la lógica real
-    lotes.forEach(lote => {
-      costos[lote.id] = { costoUnitario: 0, isLoading: false };
-    });
-    return costos;
-  }, [lotes, gastos]);
+  // Calcular costos unitarios cuando cambien los lotes
+  useEffect(() => {
+    if (lotes && lotes.length > 0) {
+      const calcularCostos = async () => {
+        const costos: {[loteId: string]: {costoUnitario: number, isLoading: boolean}} = {};
+
+        // Inicializar todos los lotes como cargando
+        lotes.forEach(lote => {
+          costos[lote.id] = { costoUnitario: 0, isLoading: true };
+        });
+        setCostosUnitarios(costos);
+
+        // Calcular costo para cada lote
+        for (const lote of lotes) {
+          try {
+            const costoHook = useCostUnitario(lote.id, TipoAve.POLLO_ENGORDE, lote.cantidadActual);
+            costos[lote.id] = {
+              costoUnitario: costoHook.costoUnitario,
+              isLoading: costoHook.isLoading
+            };
+          } catch (error) {
+            console.error(`Error calculando costo para lote ${lote.id}:`, error);
+            costos[lote.id] = { costoUnitario: 0, isLoading: false };
+          }
+        }
+
+        setCostosUnitarios(costos);
+      };
+
+      calcularCostos();
+    }
+  }, [lotes]);
   
   // Debug: Log del estado inicial
   console.log('🔍 Estado inicial:', { busqueda, ordenamiento, ordenDescendente, lotesCount: lotes?.length || 0 });
@@ -519,11 +546,11 @@ export default function LotesTab() {
                     <Text style={styles.loteDate}>
                       Inicio: {formatearFecha(lote.fechaInicio)}
                     </Text>
-                    <View style={StyleSheet.flatten([styles.locationBadge, { backgroundColor: badgeColors.badgeBg }])}>
+                    <View style={[styles.locationBadge, { backgroundColor: badgeColors.badgeBg }]}>
                       <Ionicons name={galpon ? 'location' : 'home-outline'} size={14} color={badgeColors.badgeText} />
-                      <Text style={StyleSheet.flatten([styles.locationText, { color: badgeColors.badgeText }])}>{badgeLabel}</Text>
+                      <Text style={[styles.locationText, { color: badgeColors.badgeText }]}>{badgeLabel}</Text>
                     </View>
-                    {!loadingCosto && costoUnitario > 0 && (
+                    {!loadingCosto && (
                       <CostUnitarioBadge
                         costoTotal={costoUnitario * lote.cantidadActual}
                         cantidadActual={lote.cantidadActual}
@@ -878,6 +905,20 @@ const styles = StyleSheet.create({
   loteDate: {
     fontSize: 14,
     color: colors.textMedium,
+  },
+  locationBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 999,
+    marginTop: 6,
+    gap: 6,
+  },
+  locationText: {
+    fontSize: 12,
+    fontWeight: '600',
   },
   statusContainer: {
     alignItems: 'flex-end',
