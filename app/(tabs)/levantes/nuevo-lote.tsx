@@ -30,6 +30,7 @@ export default function NuevoLoteLevanteScreen() {
   const [galponSeleccionado, setGalponSeleccionado] = useState<string>('');
   const [busquedaGalpon, setBusquedaGalpon] = useState('');
   const [modalGalponVisible, setModalGalponVisible] = useState(false);
+  const [diasMaduracion, setDiasMaduracion] = useState('');
   
   const { crearLote, isLoading } = useLevantes();
   const { user } = useAuthStore();
@@ -103,6 +104,7 @@ export default function NuevoLoteLevanteScreen() {
         galponId: galponSeleccionado,
         ...(costoCalculado > 0 && { costo: costoCalculado }),
         ...(usarPrecioUnitario && costoUnitario && { costoUnitario: parseFloat(costoUnitario) }),
+        ...(diasMaduracion && { diasMaduracion: parseInt(diasMaduracion, 10) }),
         ...observaciones.trim() && { observaciones: observaciones.trim() }
       });
 
@@ -257,6 +259,23 @@ export default function NuevoLoteLevanteScreen() {
           </ScrollView>
         </View>
         
+        {/* Sección de Maduración */}
+        <View style={styles.maturationSection}>
+          <Text style={styles.sectionTitle}>📅 Días de Maduración</Text>
+          <Text style={styles.helperText}>
+            Ingresa el número de días estimados hasta la maduración/venta del lote
+          </Text>
+          <View style={styles.formGroup}>
+            <Input
+              label="Días de Maduración (opcional)"
+              value={diasMaduracion}
+              onChangeText={setDiasMaduracion}
+              placeholder="Ej: 120"
+              keyboardType="numeric"
+            />
+          </View>
+        </View>
+
         <View style={styles.formGroup}>
           <Input
             label="Observaciones"
@@ -491,6 +510,14 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: colors.textMedium,
     marginTop: 4,
+  },
+  maturationSection: {
+    backgroundColor: colors.secondary + '08',
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 20,
+    borderWidth: 1,
+    borderColor: colors.secondary + '20',
   },
 });
 

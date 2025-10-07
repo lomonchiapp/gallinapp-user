@@ -138,7 +138,7 @@ export default function DashboardScreen() {
         </View>
         <TouchableOpacity 
           style={styles.configButton}
-          onPress={() => router.push('/(tabs)/settings/app-config')}
+          onPress={() => router.push('/(tabs)/settings')}
         >
           <Ionicons name="settings-outline" size={24} color={colors.textDark} />
         </TouchableOpacity>
@@ -327,7 +327,7 @@ export default function DashboardScreen() {
             </View>
             <TouchableOpacity 
               style={styles.configAlertButton}
-              onPress={() => router.push('/(tabs)/settings/app-config')}
+              onPress={() => router.push('/(tabs)/settings')}
             >
               <Text style={styles.configAlertButtonText}>Configurar</Text>
             </TouchableOpacity>

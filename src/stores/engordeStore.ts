@@ -6,6 +6,7 @@ import { create } from 'zustand';
 import {
     actualizarLoteEngorde,
     crearLoteEngorde,
+    eliminarLoteEngorde,
     finalizarLoteEngorde,
     obtenerLoteEngorde,
     obtenerLotesEngorde,
@@ -26,6 +27,7 @@ interface EngordeState {
   crearLote: (lote: Omit<LoteEngorde, 'id'>) => Promise<void>;
   actualizarLote: (id: string, lote: Partial<LoteEngorde>) => Promise<void>;
   finalizarLote: (id: string) => Promise<void>;
+  eliminarLote: (id: string) => Promise<void>;
   suscribirseAEngorde: () => () => void;
   
   // Acciones - Errores
@@ -137,6 +139,32 @@ export const useEngordeStore = create<EngordeState>((set, get) => ({
       set({ 
         isLoading: false, 
         error: error.message || 'Error al finalizar lote de engorde'
+      });
+    }
+  },
+
+  eliminarLote: async (id: string) => {
+    set({ isLoading: true, error: null });
+    try {
+      await eliminarLoteEngorde(id);
+      
+      // Eliminar del estado
+      set(state => {
+        const lotesActualizados = state.lotes.filter(l => l.id !== id);
+        const loteActualizado = state.loteActual && state.loteActual.id === id
+          ? null
+          : state.loteActual;
+        
+        return { 
+          lotes: lotesActualizados,
+          loteActual: loteActualizado, 
+          isLoading: false 
+        };
+      });
+    } catch (error: any) {
+      set({ 
+        isLoading: false, 
+        error: error.message || 'Error al eliminar lote de engorde'
       });
     }
   },

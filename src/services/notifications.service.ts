@@ -89,6 +89,9 @@ export const getUserNotifications = async (
       throw new Error('Usuario no autenticado');
     }
 
+    console.log('🔔 [getUserNotifications] Buscando notificaciones para userId:', currentUserId);
+    console.log('🔔 [getUserNotifications] Filtros:', filter);
+
     let q = query(
       collection(db, 'notifications'),
       where('userId', '==', currentUserId),
@@ -120,8 +123,11 @@ export const getUserNotifications = async (
     const querySnapshot = await getDocs(q);
     const notifications: Notification[] = [];
 
+    console.log('🔔 [getUserNotifications] Documentos encontrados:', querySnapshot.size);
+
     querySnapshot.forEach((doc) => {
       const data = doc.data();
+      console.log('🔔 [getUserNotifications] Procesando notificación:', doc.id, data.title);
       notifications.push({
         id: doc.id,
         ...data,
@@ -132,6 +138,7 @@ export const getUserNotifications = async (
       } as Notification);
     });
 
+    console.log('🔔 [getUserNotifications] Total notificaciones procesadas:', notifications.length);
     return notifications;
   } catch (error) {
     console.error('Error al obtener notificaciones:', error);

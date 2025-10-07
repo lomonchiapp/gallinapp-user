@@ -173,9 +173,12 @@ export default function DetallesLoteEngorde() {
           style: 'destructive',
           onPress: async () => {
             try {
-              // TODO: Implementar eliminación de lote en engordeStore
+              const { eliminarLote } = useEngordeStore.getState();
+              await eliminarLote(id);
+              Alert.alert('Éxito', 'Lote eliminado correctamente');
               router.back();
             } catch (error) {
+              console.error('Error al eliminar lote:', error);
               Alert.alert('Error', 'No se pudo eliminar el lote');
             }
           }
@@ -315,6 +318,7 @@ export default function DetallesLoteEngorde() {
 
         {tabActivo === 'gastos' && (
           <TabGastos
+            lote={loteActual}
             loteId={id}
             onRegistrarGasto={handleRegistrarGasto}
           />
@@ -814,7 +818,7 @@ function TabPeso({
 }
 
 // Componente Tab Gastos
-function TabGastos({ loteId, onRegistrarGasto }: { loteId: string; onRegistrarGasto: () => void }) {
+function TabGastos({ lote, loteId, onRegistrarGasto }: { lote: LoteEngorde; loteId: string; onRegistrarGasto: () => void }) {
   const [gastos, setGastos] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const { cargarGastos: cargarGastosStore } = useGastosStore();
@@ -851,7 +855,13 @@ function TabGastos({ loteId, onRegistrarGasto }: { loteId: string; onRegistrarGa
   }
 
   // Calcular el total de gastos
-  const totalGastos = gastos.reduce((total, gasto) => total + gasto.total, 0);
+  const gastosAdicionales = gastos.reduce((total, gasto) => total + gasto.total, 0);
+  
+  // Verificar si hay costo inicial del lote
+  const costoInicialLote = lote.costo || 0;
+  
+  // Calcular el total general (costo inicial + gastos adicionales)
+  const totalGeneral = costoInicialLote + gastosAdicionales;
 
   return (
     <View style={styles.tabContent}>
@@ -864,30 +874,74 @@ function TabGastos({ loteId, onRegistrarGasto }: { loteId: string; onRegistrarGa
         />
       </View>
 
+      {/* Resumen Total de Gastos */}
+      <Card style={styles.resumenTotalCard}>
+        <View style={styles.resumenTotalHeader}>
+          <Ionicons name="calculator" size={24} color={colors.engorde} />
+          <Text style={styles.resumenTotalTitle}>Resumen Total de Gastos</Text>
+        </View>
+        
+        <View style={styles.resumenTotalContent}>
+          {costoInicialLote > 0 && (
+            <View style={styles.resumenRow}>
+              <View style={styles.resumenLabelContainer}>
+                <Ionicons name="pricetag" size={16} color={colors.engorde} />
+                <Text style={styles.resumenLabel}>Costo inicial del lote</Text>
+              </View>
+              <Text style={styles.resumenValue}>RD${costoInicialLote.toFixed(2)}</Text>
+            </View>
+          )}
+          
+          <View style={styles.resumenRow}>
+            <View style={styles.resumenLabelContainer}>
+              <Ionicons name="receipt" size={16} color={colors.textMedium} />
+              <Text style={styles.resumenLabel}>Gastos adicionales ({gastos.length})</Text>
+            </View>
+            <Text style={styles.resumenValue}>RD${gastosAdicionales.toFixed(2)}</Text>
+          </View>
+          
+          <View style={[styles.resumenRow, styles.resumenTotalRow]}>
+            <Text style={styles.resumenTotalLabel}>TOTAL GASTOS</Text>
+            <Text style={styles.resumenTotalValue}>RD${totalGeneral.toFixed(2)}</Text>
+          </View>
+        </View>
+      </Card>
+
+      {/* Detalle del Costo Inicial */}
+      {costoInicialLote > 0 && (
+        <Card style={styles.costoInicialCard}>
+          <View style={styles.costoInicialHeader}>
+            <Text style={styles.costoInicialTitle}>💰 Detalle del Costo Inicial</Text>
+          </View>
+          <View style={styles.costoInicialContent}>
+            <View style={styles.costoInicialRow}>
+              <Text style={styles.costoInicialLabel}>Cantidad de pollos:</Text>
+              <Text style={styles.costoInicialValue}>{lote.cantidadInicial}</Text>
+            </View>
+            <View style={styles.costoInicialRow}>
+              <Text style={styles.costoInicialLabel}>Costo unitario:</Text>
+              <Text style={styles.costoInicialValue}>
+                RD${lote.costoUnitario ? lote.costoUnitario.toFixed(2) : (costoInicialLote / lote.cantidadInicial).toFixed(2)}
+              </Text>
+            </View>
+          </View>
+        </Card>
+      )}
+
       {gastos.length === 0 ? (
         <Card style={styles.emptyCard}>
           <Ionicons name="receipt-outline" size={48} color={colors.lightGray} />
-          <Text style={styles.emptyTitle}>No hay gastos registrados</Text>
+          <Text style={styles.emptyTitle}>No hay gastos adicionales registrados</Text>
           <Text style={styles.emptyText}>
-            Los gastos se mostrarán aquí cuando se registren
+            Los gastos adicionales se mostrarán aquí cuando se registren
           </Text>
         </Card>
       ) : (
         <View>
-          {/* Resumen de gastos totales */}
-          <Card style={styles.gastosSummaryCard}>
-            <Text style={styles.cardTitle}>Resumen de Gastos</Text>
-            <View style={styles.gastosSummaryGrid}>
-              <View style={styles.gastosSummaryItem}>
-                <Text style={styles.gastosSummaryValue}>RD${totalGastos.toFixed(2)}</Text>
-                <Text style={styles.gastosSummaryLabel}>Total Gastos</Text>
-              </View>
-              <View style={styles.gastosSummaryItem}>
-                <Text style={styles.gastosSummaryValue}>{gastos.length}</Text>
-                <Text style={styles.gastosSummaryLabel}>Registros</Text>
-              </View>
-            </View>
-          </Card>
+          {/* Lista de gastos */}
+          <View style={styles.gastosListHeader}>
+            <Text style={styles.gastosListTitle}>📋 Gastos Adicionales</Text>
+          </View>
 
           {/* Lista de gastos */}
           <View style={styles.gastosList}>
@@ -1698,5 +1752,105 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '600',
     color: colors.engorde,
+  },
+  // Estilos para resumen total
+  resumenTotalCard: {
+    marginBottom: 16,
+    backgroundColor: colors.engorde + '15',
+    borderColor: colors.engorde,
+    borderWidth: 2,
+  },
+  resumenTotalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 16,
+    gap: 8,
+  },
+  resumenTotalTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: colors.engorde,
+  },
+  resumenTotalContent: {
+    gap: 12,
+  },
+  resumenRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 8,
+  },
+  resumenLabelContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  resumenLabel: {
+    fontSize: 14,
+    color: colors.textDark,
+    fontWeight: '500',
+  },
+  resumenValue: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: colors.textDark,
+  },
+  resumenTotalRow: {
+    borderTopWidth: 2,
+    borderTopColor: colors.engorde,
+    paddingTop: 12,
+    marginTop: 8,
+  },
+  resumenTotalLabel: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: colors.textDark,
+    letterSpacing: 0.5,
+  },
+  resumenTotalValue: {
+    fontSize: 22,
+    fontWeight: 'bold',
+    color: colors.engorde,
+  },
+  // Estilos para detalle de costo inicial
+  costoInicialCard: {
+    marginBottom: 16,
+    backgroundColor: colors.white,
+    borderColor: colors.veryLightGray,
+    borderWidth: 1,
+  },
+  costoInicialHeader: {
+    marginBottom: 12,
+  },
+  costoInicialTitle: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: colors.textDark,
+  },
+  costoInicialContent: {
+    gap: 8,
+  },
+  costoInicialRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingVertical: 4,
+  },
+  costoInicialLabel: {
+    fontSize: 13,
+    color: colors.textMedium,
+  },
+  costoInicialValue: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: colors.textDark,
+  },
+  // Estilos para lista de gastos
+  gastosListHeader: {
+    marginBottom: 12,
+  },
+  gastosListTitle: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: colors.textDark,
   },
 });

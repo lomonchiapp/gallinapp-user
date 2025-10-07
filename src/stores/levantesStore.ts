@@ -7,6 +7,7 @@ import {
     actualizarLoteLevante,
     calcularEstadisticasLoteLevante,
     crearLoteLevante,
+    eliminarLoteLevante,
     EstadisticasLoteLevante,
     FiltroLoteLevante,
     finalizarLoteLevante,
@@ -50,6 +51,7 @@ interface LevantesState {
     crearLote: (lote: Omit<LoteLevante, 'id'>) => Promise<void>;
     actualizarLote: (id: string, lote: Partial<LoteLevante>) => Promise<void>;
     finalizarLote: (id: string) => Promise<void>;
+    eliminarLote: (id: string) => Promise<void>;
     
     // Acciones - Registros de Edad
     cargarRegistrosEdad: (loteId: string) => Promise<void>;
@@ -225,6 +227,32 @@ export const useLevantesStore = create<LevantesState>((set, get) => ({
             set({ 
                 isLoading: false, 
                 error: error.message || 'Error al finalizar lote israelí'
+            });
+        }
+    },
+
+    eliminarLote: async (id: string) => {
+        set({ isLoading: true, error: null });
+        try {
+            await eliminarLoteLevante(id);
+            
+            // Eliminar del estado
+            set(state => {
+                const lotesActualizados = state.lotes.filter(l => l.id !== id);
+                const loteActualizado = state.loteActual && state.loteActual.id === id
+                    ? null
+                    : state.loteActual;
+                
+                return { 
+                    lotes: lotesActualizados,
+                    loteActual: loteActualizado, 
+                    isLoading: false 
+                };
+            });
+        } catch (error: any) {
+            set({ 
+                isLoading: false, 
+                error: error.message || 'Error al eliminar lote de levantes'
             });
         }
     },

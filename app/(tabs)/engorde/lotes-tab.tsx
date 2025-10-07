@@ -12,7 +12,6 @@ import Card from '../../../src/components/ui/Card';
 import CostUnitarioBadge from '../../../src/components/ui/CostUnitarioBadge';
 import GastoSheet from '../../../src/components/ui/GastoSheet';
 import { colors } from '../../../src/constants/colors';
-import { useCostUnitario } from '../../../src/hooks/useCostUnitario';
 import { useGalpones } from '../../../src/hooks/useGalpones';
 import { useGastosSubscription } from '../../../src/hooks/useGastosSubscription';
 import { getWeightTrackingInfoFromStore, WeightTrackingInfo } from '../../../src/services/tracking-optimized.service';
@@ -77,10 +76,18 @@ export default function LotesTab() {
         // Calcular costo para cada lote
         for (const lote of lotes) {
           try {
-            const costoHook = useCostUnitario(lote.id, TipoAve.POLLO_ENGORDE, lote.cantidadActual);
+            // Importar el servicio directamente
+            const { calcularCostoProduccionUnitario } = await import('../../../src/services/gastos.service');
+            const gastosAdicionales = await calcularCostoProduccionUnitario(lote.id, TipoAve.POLLO_ENGORDE);
+            
+            // Sumar el costo inicial del lote + gastos adicionales
+            const costoInicial = lote.costo || 0;
+            const costoTotal = costoInicial + gastosAdicionales;
+            const costoUnitario = lote.cantidadActual > 0 ? costoTotal / lote.cantidadActual : 0;
+            
             costos[lote.id] = {
-              costoUnitario: costoHook.costoUnitario,
-              isLoading: costoHook.isLoading
+              costoUnitario,
+              isLoading: false
             };
           } catch (error) {
             console.error(`Error calculando costo para lote ${lote.id}:`, error);

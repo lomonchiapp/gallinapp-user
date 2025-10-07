@@ -46,7 +46,7 @@ export default function SettingsScreen() {
       
       <TouchableOpacity 
         style={styles.menuItem}
-        onPress={() => navigateTo('/(modules)/settings/app-config')}
+        onPress={() => navigateTo('/(tabs)/settings/app-config')}
       >
         <Ionicons name="settings-outline" size={24} color={colors.primary} style={styles.menuIcon} />
         <View style={styles.menuContent}>
@@ -58,7 +58,19 @@ export default function SettingsScreen() {
       
       <TouchableOpacity 
         style={styles.menuItem}
-        onPress={() => navigateTo('/(modules)/settings/profile')}
+        onPress={() => navigateTo('/(tabs)/settings/metricas-referencia')}
+      >
+        <Ionicons name="analytics-outline" size={24} color={colors.success} style={styles.menuIcon} />
+        <View style={styles.menuContent}>
+          <Text style={styles.menuTitle}>Métricas de Referencia</Text>
+          <Text style={styles.menuDescription}>Benchmarks y estándares de desempeño</Text>
+        </View>
+        <Ionicons name="chevron-forward" size={20} color={colors.lightGray} />
+      </TouchableOpacity>
+      
+      <TouchableOpacity 
+        style={styles.menuItem}
+        onPress={() => navigateTo('/(tabs)/settings/profile')}
       >
         <Ionicons name="person-outline" size={24} color={colors.primary} style={styles.menuIcon} />
         <View style={styles.menuContent}>
@@ -70,12 +82,12 @@ export default function SettingsScreen() {
       
       <TouchableOpacity 
         style={styles.menuItem}
-        onPress={() => navigateTo('/(modules)/settings/change-password')}
+        onPress={() => router.push('/notifications')}
       >
-        <Ionicons name="lock-closed-outline" size={24} color={colors.primary} style={styles.menuIcon} />
+        <Ionicons name="notifications-outline" size={24} color={colors.primary} style={styles.menuIcon} />
         <View style={styles.menuContent}>
-          <Text style={styles.menuTitle}>Cambiar Contraseña</Text>
-          <Text style={styles.menuDescription}>Actualizar contraseña de acceso</Text>
+          <Text style={styles.menuTitle}>Notificaciones</Text>
+          <Text style={styles.menuDescription}>Ver y configurar alertas</Text>
         </View>
         <Ionicons name="chevron-forward" size={20} color={colors.lightGray} />
       </TouchableOpacity>

@@ -5,6 +5,7 @@
 import {
     addDoc,
     collection,
+    deleteDoc,
     doc,
     getDoc,
     getDocs,
@@ -92,6 +93,23 @@ export const crearLoteLevante = async (lote: Omit<LoteLevante, 'id'>): Promise<L
             createdBy: userId,
         });
 
+        // Si el lote tiene un costo inicial, registrarlo como gasto
+        if (lote.costo && lote.costo > 0) {
+            console.log('💰 Registrando costo inicial del lote como gasto:', lote.costo);
+            const { CategoriaGasto } = await import('../types/enums');
+            await registrarGastoLevante({
+                loteId: docRef.id,
+                articuloId: 'costo-inicial',
+                articuloNombre: 'Costo Inicial del Lote',
+                cantidad: lote.cantidadInicial,
+                precioUnitario: lote.costoUnitario || (lote.costo / lote.cantidadInicial),
+                total: lote.costo,
+                fecha: lote.fechaInicio,
+                categoria: CategoriaGasto.OTHER,
+                descripcion: `Costo inicial de compra de ${lote.cantidadInicial} pollitos de levante`
+            });
+        }
+
         return {
             id: docRef.id,
             ...lote,
@@ -136,6 +154,22 @@ export const finalizarLoteLevante = async (id: string): Promise<void> => {
         });
     } catch (error) {
         console.error('Error al finalizar lote levante:', error);
+        throw error;
+    }
+};
+
+/**
+ * Eliminar un lote de pollos levantes
+ */
+export const eliminarLoteLevante = async (id: string): Promise<void> => {
+    try {
+        const userId = getCurrentUserId();
+        if (!userId) throw new Error('Usuario no autenticado');
+
+        const loteRef = doc(db, LOTES_COLLECTION, id);
+        await deleteDoc(loteRef);
+    } catch (error) {
+        console.error('Error al eliminar lote de levantes:', error);
         throw error;
     }
 };

@@ -1,5 +1,5 @@
 /**
- * Pantalla de gestión de notificaciones
+ * Pantalla de gestión de notificaciones - Movida fuera de settings
  */
 
 import { Ionicons } from '@expo/vector-icons';
@@ -13,16 +13,19 @@ import {
     TouchableOpacity,
     View,
 } from 'react-native';
-import Button from '../../../src/components/ui/Button';
-import Card from '../../../src/components/ui/Card';
-import { colors } from '../../../src/constants/colors';
-import { useNotificationsStore } from '../../../src/stores/notificationsStore';
+import AppHeader from '../src/components/layouts/AppHeader';
+import Button from '../src/components/ui/Button';
+import Card from '../src/components/ui/Card';
+import { colors } from '../src/constants/colors';
+import { createNotification } from '../src/services/notifications.service';
+import { useNotificationsStore } from '../src/stores/notificationsStore';
 import {
     Notification,
     NotificationCategory,
     NotificationPriority,
     NotificationStatus,
-} from '../../../src/types/notification';
+    NotificationType
+} from '../src/types/notification';
 
 // Componente para una notificación individual
 const NotificationItem = ({ 
@@ -123,7 +126,7 @@ const NotificationItem = ({
           
           <View style={styles.notificationActions}>
             <TouchableOpacity 
-              style={styles.actionButton}
+              style={styles.notificationActionButton}
               onPress={(e) => {
                 e.stopPropagation();
                 onMarkAsRead();
@@ -137,7 +140,7 @@ const NotificationItem = ({
             </TouchableOpacity>
             
             <TouchableOpacity 
-              style={styles.actionButton}
+              style={styles.notificationActionButton}
               onPress={(e) => {
                 e.stopPropagation();
                 onArchive();
@@ -151,7 +154,7 @@ const NotificationItem = ({
             </TouchableOpacity>
             
             <TouchableOpacity 
-              style={styles.actionButton}
+              style={styles.notificationActionButton}
               onPress={(e) => {
                 e.stopPropagation();
                 onDelete();
@@ -207,6 +210,7 @@ export default function NotificationsScreen() {
   
   // Cargar datos iniciales
   useEffect(() => {
+    console.log('📱 [NotificationsScreen] Iniciando carga de notificaciones...');
     loadInitialData();
     startRealtimeUpdates();
     
@@ -217,12 +221,15 @@ export default function NotificationsScreen() {
   
   const loadInitialData = async () => {
     try {
+      console.log('📱 [NotificationsScreen] Cargando notificaciones y stats...');
       await Promise.all([
         loadNotifications(),
         loadStats(),
       ]);
+      console.log('📱 [NotificationsScreen] Notificaciones cargadas:', notifications.length);
+      console.log('📱 [NotificationsScreen] Stats:', stats);
     } catch (error) {
-      console.error('Error al cargar datos iniciales:', error);
+      console.error('❌ [NotificationsScreen] Error al cargar datos iniciales:', error);
     }
   };
   
@@ -248,6 +255,17 @@ export default function NotificationsScreen() {
     }
   });
   
+  // Debug log
+  useEffect(() => {
+    console.log('🔍 [NotificationsScreen] Estado actual:');
+    console.log('  - Total notificaciones:', notifications.length);
+    console.log('  - Filtro activo:', selectedFilter);
+    console.log('  - Notificaciones filtradas:', filteredNotifications.length);
+    console.log('  - Unread count:', getUnreadCount());
+    console.log('  - isLoading:', isLoading);
+    console.log('  - error:', error);
+  }, [notifications, selectedFilter, filteredNotifications]);
+  
   // Manejar clic en notificación
   const handleNotificationPress = async (notification: Notification) => {
     // Marcar como leída si no está leída
@@ -257,7 +275,6 @@ export default function NotificationsScreen() {
     
     // Manejar acciones específicas basadas en el tipo
     if (notification.data?.loteId) {
-      // TODO: Navegar a la página del lote
       Alert.alert(
         'Navegar al Lote',
         `¿Deseas ir al lote ${notification.data.loteName || notification.data.loteId}?`,
@@ -289,6 +306,25 @@ export default function NotificationsScreen() {
         }
       ]
     );
+  };
+  
+  // Crear notificación de prueba
+  const handleCreateTestNotification = async () => {
+    try {
+      await createNotification({
+        type: NotificationType.CUSTOM,
+        category: NotificationCategory.PRODUCTION,
+        priority: NotificationPriority.HIGH,
+        title: '🧪 Notificación de Prueba',
+        message: `Esta es una notificación de prueba creada a las ${new Date().toLocaleTimeString()}`,
+        sendPush: false
+      });
+      await loadNotifications();
+      Alert.alert('✅ Éxito', 'Notificación de prueba creada correctamente');
+    } catch (error) {
+      Alert.alert('❌ Error', 'No se pudo crear la notificación de prueba');
+      console.error('Error al crear notificación de prueba:', error);
+    }
   };
   
   // Renderizar filtros
@@ -380,21 +416,46 @@ export default function NotificationsScreen() {
   
   return (
     <View style={styles.container}>
-      {/* Header con acciones */}
-      <View style={styles.header}>
-        <Text style={styles.title}>Notificaciones</Text>
-        <View style={styles.headerActions}>
-          {getUnreadCount() > 0 && (
-            <Button
-              title="Marcar todas como leídas"
-              variant="outline"
-              size="small"
-              onPress={markAllAsRead}
-              style={styles.markAllButton}
-            />
-          )}
-        </View>
+      {/* Header */}
+      <AppHeader 
+        title="Notificaciones"
+        showBack={true}
+        showProfile={false}
+        showNotifications={false}
+      />
+      
+      {/* Acciones */}
+      <View style={styles.actionsBar}>
+        {__DEV__ && (
+          <Button
+            title="🧪 Crear Test"
+            variant="outline"
+            size="small"
+            onPress={handleCreateTestNotification}
+            style={styles.actionButton}
+          />
+        )}
+        {getUnreadCount() > 0 && (
+          <Button
+            title="Marcar todas como leídas"
+            variant="outline"
+            size="small"
+            onPress={markAllAsRead}
+            style={styles.actionButton}
+          />
+        )}
       </View>
+      
+      {/* Debug Info */}
+      {__DEV__ && (
+        <Card style={styles.debugCard}>
+          <Text style={styles.debugTitle}>🔧 Debug Info</Text>
+          <Text style={styles.debugText}>Total: {notifications.length}</Text>
+          <Text style={styles.debugText}>Filtradas: {filteredNotifications.length}</Text>
+          <Text style={styles.debugText}>Unread: {getUnreadCount()}</Text>
+          <Text style={styles.debugText}>Cargando: {isLoading ? 'Sí' : 'No'}</Text>
+        </Card>
+      )}
       
       {/* Error */}
       {error && (
@@ -445,25 +506,40 @@ const styles = StyleSheet.create({
     backgroundColor: colors.background,
   },
   
-  // Header
-  header: {
+  // Actions Bar
+  actionsBar: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
-    padding: 16,
-    paddingBottom: 8,
+    justifyContent: 'flex-end',
+    gap: 8,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    backgroundColor: colors.white,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.veryLightGray,
   },
-  title: {
-    fontSize: 24,
+  actionButton: {
+    minWidth: 100,
+  },
+  
+  // Debug
+  debugCard: {
+    backgroundColor: colors.warning + '10',
+    marginHorizontal: 16,
+    marginTop: 16,
+    marginBottom: 8,
+    padding: 12,
+  },
+  debugTitle: {
+    fontSize: 14,
     fontWeight: 'bold',
     color: colors.textDark,
+    marginBottom: 8,
   },
-  headerActions: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  markAllButton: {
-    minWidth: 100,
+  debugText: {
+    fontSize: 12,
+    color: colors.textMedium,
+    marginBottom: 4,
   },
   
   // Error
@@ -618,7 +694,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
   },
-  actionButton: {
+  notificationActionButton: {
     padding: 8,
     marginLeft: 4,
   },
@@ -662,20 +738,3 @@ const styles = StyleSheet.create({
     lineHeight: 20,
   },
 });
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

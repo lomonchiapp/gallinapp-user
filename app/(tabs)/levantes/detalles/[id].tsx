@@ -6,23 +6,24 @@ import { Ionicons } from '@expo/vector-icons';
 import { router, useLocalSearchParams } from 'expo-router';
 import React, { useEffect, useState } from 'react';
 import {
-    Alert,
-    Modal,
-    RefreshControl,
-    ScrollView,
-    StyleSheet,
-    Text,
-    TouchableOpacity,
-    View
+  Alert,
+  Modal,
+  RefreshControl,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View
 } from 'react-native';
 import Button from '../../../../src/components/ui/Button';
 import Card from '../../../../src/components/ui/Card';
 import GrowthChart from '../../../../src/components/ui/GrowthChart';
 import MaturationAlert from '../../../../src/components/ui/MaturationAlert';
+import PerformanceComparison from '../../../../src/components/ui/PerformanceComparison';
 import PerformanceReport from '../../../../src/components/ui/PerformanceReport';
-import PredictionsPanel from '../../../../src/components/ui/PredictionsPanel';
 import { colors } from '../../../../src/constants/colors';
 import { useGalpones } from '../../../../src/hooks/useGalpones';
+import { usePerformanceMonitoring } from '../../../../src/hooks/usePerformanceMonitoring';
 import { exportarYCompartir } from '../../../../src/services/pdf-export.service';
 import { obtenerRegistrosPeso } from '../../../../src/services/peso.service';
 import { useGastosStore } from '../../../../src/stores/gastosStore';
@@ -62,6 +63,9 @@ export default function DetallesLoteLevante() {
   } = useMortalityStore();
 
   const { galpones, cargarGalpones } = useGalpones();
+  
+  // Monitoreo de desempeño vs benchmarks
+  const { comparaciones, isLoading: loadingPerformance } = usePerformanceMonitoring(loteActual || undefined);
 
   // Cargar datos del lote al montar el componente
   useEffect(() => {
@@ -186,9 +190,12 @@ export default function DetallesLoteLevante() {
           style: 'destructive',
           onPress: async () => {
             try {
-              // TODO: Implementar eliminación de lote en levantesStore
+              const { eliminarLote } = useLevantesStore.getState();
+              await eliminarLote(id);
+              Alert.alert('Éxito', 'Lote eliminado correctamente');
               router.back();
             } catch (error) {
+              console.error('Error al eliminar lote:', error);
               Alert.alert('Error', 'No se pudo eliminar el lote');
             }
           }
@@ -304,6 +311,8 @@ export default function DetallesLoteLevante() {
             onRegistrarMuerte={handleRegistrarMuerte}
             onRegistrarGasto={handleRegistrarGasto}
             galpones={galpones}
+            comparaciones={comparaciones}
+            loadingPerformance={loadingPerformance}
           />
         )}
 
@@ -316,6 +325,7 @@ export default function DetallesLoteLevante() {
 
         {tabActivo === 'gastos' && (
           <TabGastos
+            lote={loteActual}
             loteId={id}
             onRegistrarGasto={handleRegistrarGasto}
           />
@@ -338,22 +348,7 @@ export default function DetallesLoteLevante() {
           />
         )}
 
-        {/* Panel de predicciones - visible en todas las pestañas */}
-        {loteActual && (
-          <PredictionsPanel
-            data={{
-              loteId: loteActual.id,
-              tipoAve: TipoAve.POLLO_LEVANTE,
-              fechaNacimiento: loteActual.fechaNacimiento,
-              cantidadInicial: loteActual.cantidadInicial,
-              cantidadActual: loteActual.cantidadActual,
-              registrosPeso: registrosPeso,
-              registrosMortalidad: registrosMortalidad,
-              gastoTotal: estadisticas?.gastoTotal || 0
-            }}
-            style={styles.predictionsPanel}
-          />
-        )}
+        
       </ScrollView>
 
       {/* Modal del menú */}
@@ -401,6 +396,93 @@ export default function DetallesLoteLevante() {
   );
 }
 
+// Componente para mostrar el progreso de maduración
+function MaturationProgressCard({
+  fechaNacimiento,
+  diasMaduracion,
+  pesoPromedio,
+  cantidadActual
+}: {
+  fechaNacimiento: any;
+  diasMaduracion: number;
+  pesoPromedio: number;
+  cantidadActual: number;
+}) {
+  // Calcular días transcurridos
+  const fechaNac = fechaNacimiento?.toDate ? fechaNacimiento.toDate() : new Date(fechaNacimiento);
+  const diasTranscurridos = Math.floor((Date.now() - fechaNac.getTime()) / (1000 * 60 * 60 * 24));
+  const progreso = Math.min((diasTranscurridos / diasMaduracion) * 100, 100);
+  const diasRestantes = Math.max(diasMaduracion - diasTranscurridos, 0);
+  
+  // Determinar estado de maduración
+  let estadoColor = colors.primary;
+  let estadoTexto = 'En Desarrollo';
+  let estadoIcon: any = 'time-outline';
+  
+  if (progreso >= 100) {
+    estadoColor = colors.success;
+    estadoTexto = '¡Listo para Venta!';
+    estadoIcon = 'checkmark-circle';
+  } else if (progreso >= 80) {
+    estadoColor = colors.warning;
+    estadoTexto = 'Próximo a Maduración';
+    estadoIcon = 'alert-circle';
+  }
+
+  return (
+    <Card style={StyleSheet.flatten([styles.maturationCard, { borderLeftColor: estadoColor, borderLeftWidth: 4 }])}>
+      <View style={styles.maturationHeader}>
+        <Ionicons name={estadoIcon} size={24} color={estadoColor} />
+        <Text style={StyleSheet.flatten([styles.maturationTitle, { color: estadoColor }])}>{estadoTexto}</Text>
+      </View>
+      
+      <View style={styles.maturationProgressContainer}>
+        <View style={styles.maturationProgressBar}>
+          <View style={[styles.maturationProgressFill, { width: `${progreso}%`, backgroundColor: estadoColor }]} />
+        </View>
+        <Text style={styles.maturationProgressText}>{progreso.toFixed(0)}%</Text>
+      </View>
+
+      <View style={styles.maturationStatsGrid}>
+        <View style={styles.maturationStatItem}>
+          <Text style={styles.maturationStatValue}>{diasTranscurridos}</Text>
+          <Text style={styles.maturationStatLabel}>Días Transcurridos</Text>
+        </View>
+        <View style={styles.maturationStatItem}>
+          <Text style={styles.maturationStatValue}>{diasRestantes}</Text>
+          <Text style={styles.maturationStatLabel}>Días Restantes</Text>
+        </View>
+        <View style={styles.maturationStatItem}>
+          <Text style={styles.maturationStatValue}>{formatWeight(pesoPromedio, WeightUnit.POUNDS)}</Text>
+          <Text style={styles.maturationStatLabel}>Peso Promedio</Text>
+        </View>
+        <View style={styles.maturationStatItem}>
+          <Text style={styles.maturationStatValue}>{cantidadActual}</Text>
+          <Text style={styles.maturationStatLabel}>Pollos Actuales</Text>
+        </View>
+      </View>
+
+      {progreso >= 100 && (
+        <View style={styles.maturationAlertBox}>
+          <Ionicons name="information-circle" size={16} color={colors.success} />
+          <Text style={StyleSheet.flatten([styles.maturationAlertText, { color: colors.success }])}>
+            El lote ha alcanzado su período de maduración objetivo. Considere evaluar la venta.
+          </Text>
+        </View>
+      )}
+      
+      {progreso >= 80 && progreso < 100 && (
+        <View style={styles.maturationAlertBox}>
+          <Ionicons name="information-circle" size={16} color={colors.warning} />
+          <Text style={StyleSheet.flatten([styles.maturationAlertText, { color: colors.warning }])}>
+            El lote está próximo a su maduración. Prepare la logística de venta.
+          </Text>
+        </View>
+      )}
+    </Card>
+  );
+}
+
 // Componente Tab General
 function TabGeneral({ 
   lote, 
@@ -411,6 +493,8 @@ function TabGeneral({
   onRegistrarMuerte, 
   onRegistrarGasto,
   galpones,
+  comparaciones,
+  loadingPerformance,
 }: {
   lote: LoteLevante;
   estadisticas: any;
@@ -420,6 +504,8 @@ function TabGeneral({
   onRegistrarMuerte: () => void;
   onRegistrarGasto: () => void;
   galpones: Galpon[];
+  comparaciones: any;
+  loadingPerformance: boolean;
 }) {
   // Calcular muertes totales desde los registros reales (para mostrar estadísticas)
   const muertesTotales = registrosMortalidad
@@ -541,12 +627,29 @@ function TabGeneral({
         </Card>
       )}
 
-      {/* Alerta de maduración */}
+      {/* Panel de maduración personalizado */}
+      {lote.diasMaduracion && (
+        <MaturationProgressCard
+          fechaNacimiento={lote.fechaNacimiento}
+          diasMaduracion={lote.diasMaduracion}
+          pesoPromedio={pesoPromedio}
+          cantidadActual={pollosActuales}
+        />
+      )}
+
+      {/* Alerta de maduración por defecto */}
       <MaturationAlert
         tipoAve={TipoAve.POLLO_LEVANTE}
         fechaNacimiento={lote.fechaNacimiento}
         pesoPromedio={registrosPeso.length > 0 ? (registrosPeso[0] as any)?.pesoPromedio || 0 : 0}
         style={styles.maturationAlert}
+      />
+
+      {/* Comparación de Desempeño vs Benchmarks */}
+      <PerformanceComparison
+        comparaciones={comparaciones}
+        lote={lote}
+        isLoading={loadingPerformance}
       />
 
       {/* Acciones rápidas */}
@@ -699,7 +802,7 @@ function TabPeso({
 }
 
 // Componente Tab Gastos
-function TabGastos({ loteId, onRegistrarGasto }: { loteId: string; onRegistrarGasto: () => void }) {
+function TabGastos({ lote, loteId, onRegistrarGasto }: { lote: LoteLevante; loteId: string; onRegistrarGasto: () => void }) {
   const [gastos, setGastos] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const { cargarGastos: cargarGastosStore } = useGastosStore();
@@ -736,7 +839,13 @@ function TabGastos({ loteId, onRegistrarGasto }: { loteId: string; onRegistrarGa
   }
 
   // Calcular el total de gastos
-  const totalGastos = gastos.reduce((total, gasto) => total + gasto.total, 0);
+  const gastosAdicionales = gastos.reduce((total, gasto) => total + gasto.total, 0);
+  
+  // Verificar si hay costo inicial del lote
+  const costoInicialLote = lote.costo || 0;
+  
+  // Calcular el total general (costo inicial + gastos adicionales)
+  const totalGeneral = costoInicialLote + gastosAdicionales;
 
   return (
     <View style={styles.tabContent}>
@@ -749,30 +858,74 @@ function TabGastos({ loteId, onRegistrarGasto }: { loteId: string; onRegistrarGa
         />
       </View>
 
+      {/* Resumen Total de Gastos */}
+      <Card style={styles.resumenTotalCard}>
+        <View style={styles.resumenTotalHeader}>
+          <Ionicons name="calculator" size={24} color={colors.secondary} />
+          <Text style={styles.resumenTotalTitle}>Resumen Total de Gastos</Text>
+        </View>
+        
+        <View style={styles.resumenTotalContent}>
+          {costoInicialLote > 0 && (
+            <View style={styles.resumenRow}>
+              <View style={styles.resumenLabelContainer}>
+                <Ionicons name="pricetag" size={16} color={colors.secondary} />
+                <Text style={styles.resumenLabel}>Costo inicial del lote</Text>
+              </View>
+              <Text style={styles.resumenValue}>RD${costoInicialLote.toFixed(2)}</Text>
+            </View>
+          )}
+          
+          <View style={styles.resumenRow}>
+            <View style={styles.resumenLabelContainer}>
+              <Ionicons name="receipt" size={16} color={colors.textMedium} />
+              <Text style={styles.resumenLabel}>Gastos adicionales ({gastos.length})</Text>
+            </View>
+            <Text style={styles.resumenValue}>RD${gastosAdicionales.toFixed(2)}</Text>
+          </View>
+          
+          <View style={[styles.resumenRow, styles.resumenTotalRow]}>
+            <Text style={styles.resumenTotalLabel}>TOTAL GASTOS</Text>
+            <Text style={styles.resumenTotalValue}>RD${totalGeneral.toFixed(2)}</Text>
+          </View>
+        </View>
+      </Card>
+
+      {/* Detalle del Costo Inicial */}
+      {costoInicialLote > 0 && (
+        <Card style={styles.costoInicialCard}>
+          <View style={styles.costoInicialHeader}>
+            <Text style={styles.costoInicialTitle}>💰 Detalle del Costo Inicial</Text>
+          </View>
+          <View style={styles.costoInicialContent}>
+            <View style={styles.costoInicialRow}>
+              <Text style={styles.costoInicialLabel}>Cantidad de pollos:</Text>
+              <Text style={styles.costoInicialValue}>{lote.cantidadInicial}</Text>
+            </View>
+            <View style={styles.costoInicialRow}>
+              <Text style={styles.costoInicialLabel}>Costo unitario:</Text>
+              <Text style={styles.costoInicialValue}>
+                RD${lote.costoUnitario ? lote.costoUnitario.toFixed(2) : (costoInicialLote / lote.cantidadInicial).toFixed(2)}
+              </Text>
+            </View>
+          </View>
+        </Card>
+      )}
+
       {gastos.length === 0 ? (
         <Card style={styles.emptyCard}>
           <Ionicons name="receipt-outline" size={48} color={colors.lightGray} />
-          <Text style={styles.emptyTitle}>No hay gastos registrados</Text>
+          <Text style={styles.emptyTitle}>No hay gastos adicionales registrados</Text>
           <Text style={styles.emptyText}>
-            Los gastos se mostrarán aquí cuando se registren
+            Los gastos adicionales se mostrarán aquí cuando se registren
           </Text>
         </Card>
       ) : (
         <View>
-          {/* Resumen de gastos totales */}
-          <Card style={styles.gastosSummaryCard}>
-            <Text style={styles.cardTitle}>Resumen de Gastos</Text>
-            <View style={styles.gastosSummaryGrid}>
-              <View style={styles.gastosSummaryItem}>
-                <Text style={styles.gastosSummaryValue}>RD${totalGastos.toFixed(2)}</Text>
-                <Text style={styles.gastosSummaryLabel}>Total Gastos</Text>
-              </View>
-              <View style={styles.gastosSummaryItem}>
-                <Text style={styles.gastosSummaryValue}>{gastos.length}</Text>
-                <Text style={styles.gastosSummaryLabel}>Registros</Text>
-              </View>
-            </View>
-          </Card>
+          {/* Lista de gastos */}
+          <View style={styles.gastosListHeader}>
+            <Text style={styles.gastosListTitle}>📋 Gastos Adicionales</Text>
+          </View>
 
           {/* Lista de gastos */}
           <View style={styles.gastosList}>
@@ -1493,5 +1646,181 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '600',
     color: colors.secondary,
+  },
+  // Estilos para el card de maduración
+  maturationCard: {
+    marginBottom: 16,
+    backgroundColor: colors.white,
+  },
+  maturationHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 16,
+    gap: 8,
+  },
+  maturationTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+  },
+  maturationProgressContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 16,
+    gap: 12,
+  },
+  maturationProgressBar: {
+    flex: 1,
+    height: 12,
+    backgroundColor: colors.veryLightGray,
+    borderRadius: 6,
+    overflow: 'hidden',
+  },
+  maturationProgressFill: {
+    height: '100%',
+    borderRadius: 6,
+  },
+  maturationProgressText: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: colors.textDark,
+    minWidth: 45,
+    textAlign: 'right',
+  },
+  maturationStatsGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'space-between',
+    marginBottom: 12,
+  },
+  maturationStatItem: {
+    width: '48%',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  maturationStatValue: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: colors.secondary,
+  },
+  maturationStatLabel: {
+    fontSize: 12,
+    color: colors.textMedium,
+    marginTop: 4,
+    textAlign: 'center',
+  },
+  maturationAlertBox: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    backgroundColor: colors.veryLightGray,
+    padding: 12,
+    borderRadius: 8,
+    gap: 8,
+    marginTop: 8,
+  },
+  maturationAlertText: {
+    flex: 1,
+    fontSize: 13,
+    lineHeight: 18,
+  },
+  // Estilos para costo inicial del lote
+  // Estilos para resumen total
+  resumenTotalCard: {
+    marginBottom: 16,
+    backgroundColor: colors.secondary + '15',
+    borderColor: colors.secondary,
+    borderWidth: 2,
+  },
+  resumenTotalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 16,
+    gap: 8,
+  },
+  resumenTotalTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: colors.secondary,
+  },
+  resumenTotalContent: {
+    gap: 12,
+  },
+  resumenRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 8,
+  },
+  resumenLabelContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  resumenLabel: {
+    fontSize: 14,
+    color: colors.textDark,
+    fontWeight: '500',
+  },
+  resumenValue: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: colors.textDark,
+  },
+  resumenTotalRow: {
+    borderTopWidth: 2,
+    borderTopColor: colors.secondary,
+    paddingTop: 12,
+    marginTop: 8,
+  },
+  resumenTotalLabel: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: colors.textDark,
+    letterSpacing: 0.5,
+  },
+  resumenTotalValue: {
+    fontSize: 22,
+    fontWeight: 'bold',
+    color: colors.secondary,
+  },
+  // Estilos para detalle de costo inicial
+  costoInicialCard: {
+    marginBottom: 16,
+    backgroundColor: colors.white,
+    borderColor: colors.veryLightGray,
+    borderWidth: 1,
+  },
+  costoInicialHeader: {
+    marginBottom: 12,
+  },
+  costoInicialTitle: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: colors.textDark,
+  },
+  costoInicialContent: {
+    gap: 8,
+  },
+  costoInicialRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingVertical: 4,
+  },
+  costoInicialLabel: {
+    fontSize: 13,
+    color: colors.textMedium,
+  },
+  costoInicialValue: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: colors.textDark,
+  },
+  // Estilos para lista de gastos
+  gastosListHeader: {
+    marginBottom: 12,
+  },
+  gastosListTitle: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: colors.textDark,
   },
 });

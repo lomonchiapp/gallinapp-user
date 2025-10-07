@@ -88,11 +88,21 @@ export const calcularEstadisticasFinancieras = async (
       ingresosPonedoras += huevosLote * config.precioHuevo;
     }
     
-    // Calcular ingresos de engorde (placeholder - necesitarás implementar registros de peso)
-    const ingresosEngorde = 0; // lotesEngorde * peso promedio * precio por libra
+    // Calcular ingresos de engorde basado en peso estimado y precio por libra
+    let ingresosEngorde = 0;
+    for (const lote of lotesEngorde) {
+      // Calcular peso total estimado del lote (peso promedio * cantidad actual)
+      const pesoPromedioLbs = lote.pesoPromedio || 0; // Ya está en libras
+      const pesoTotalEstimado = pesoPromedioLbs * lote.cantidadActual;
+      ingresosEngorde += pesoTotalEstimado * config.precioLibraEngorde;
+    }
     
-    // Calcular ingresos de israelíes (placeholder - necesitarás implementar ventas)
-    const ingresosIsraelies = 0; // israelíes vendidos * precio unitario
+    // Calcular ingresos potenciales de levantes (israelíes) basado en precio unitario
+    let ingresosIsraelies = 0;
+    for (const lote of lotesIsraelies) {
+      // Los levantes se venden por unidad completa
+      ingresosIsraelies += lote.cantidadActual * config.precioUnidadIsraeli;
+    }
     
     const ingresosTotal = ingresosPonedoras + ingresosEngorde + ingresosIsraelies;
     
@@ -239,6 +249,8 @@ export const calcularEstadisticasLote = async (
     throw error;
   }
 };
+
+
 
 
 

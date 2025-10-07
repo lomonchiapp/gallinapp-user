@@ -124,6 +124,23 @@ export const crearLotePonedora = async (lote: Omit<LotePonedora, 'id' | 'created
     const docRef = await addDoc(collection(db, LOTES_COLLECTION), loteData);
     console.log('✅ Documento creado con ID:', docRef.id);
     
+    // Si el lote tiene un costo inicial, registrarlo como gasto
+    if (lote.costo && lote.costo > 0) {
+      console.log('💰 Registrando costo inicial del lote como gasto:', lote.costo);
+      const { CategoriaGasto } = await import('../types/enums');
+      await registrarGastoPonedora({
+        loteId: docRef.id,
+        articuloId: 'costo-inicial',
+        articuloNombre: 'Costo Inicial del Lote',
+        cantidad: lote.cantidadInicial,
+        precioUnitario: lote.costoUnitario || (lote.costo / lote.cantidadInicial),
+        total: lote.costo,
+        fecha: lote.fechaInicio,
+        categoria: CategoriaGasto.OTHER,
+        descripcion: `Costo inicial de compra de ${lote.cantidadInicial} gallinas ponedoras`
+      });
+    }
+    
     const nuevoLote = {
       id: docRef.id,
       ...lote,

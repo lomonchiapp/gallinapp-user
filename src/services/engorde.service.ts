@@ -5,6 +5,7 @@
 import {
     addDoc,
     collection,
+    deleteDoc,
     doc,
     getDoc,
     getDocs,
@@ -16,11 +17,42 @@ import {
     where
 } from 'firebase/firestore';
 import { db } from '../components/config/firebase';
-import { LoteEngorde } from '../types';
+import { Gasto, LoteEngorde, TipoAve } from '../types';
 import { getCurrentUserId } from './auth.service';
 
 // Colecciones
 const LOTES_COLLECTION = 'lotesEngorde';
+const GASTOS_COLLECTION = 'gastos';
+
+/**
+ * Registrar gasto para un lote de engorde
+ */
+export const registrarGastoEngorde = async (gasto: Omit<Gasto, 'id' | 'tipoLote' | 'createdBy' | 'createdAt'>): Promise<Gasto> => {
+  try {
+    const userId = getCurrentUserId();
+    if (!userId) throw new Error('Usuario no autenticado');
+    
+    const gastoData = {
+      ...gasto,
+      tipoLote: TipoAve.POLLO_ENGORDE,
+      createdBy: userId,
+      createdAt: serverTimestamp()
+    };
+    
+    const docRef = await addDoc(collection(db, GASTOS_COLLECTION), gastoData);
+    
+    return {
+      id: docRef.id,
+      ...gasto,
+      tipoLote: TipoAve.POLLO_ENGORDE,
+      createdBy: userId,
+      createdAt: new Date()
+    };
+  } catch (error) {
+    console.error('Error al registrar gasto engorde:', error);
+    throw error;
+  }
+};
 
 /**
  * Crear un nuevo lote de engorde
@@ -39,6 +71,23 @@ export const crearLoteEngorde = async (lote: Omit<LoteEngorde, 'id'>): Promise<L
     };
     
     const docRef = await addDoc(collection(db, LOTES_COLLECTION), loteData);
+    
+    // Si el lote tiene un costo inicial, registrarlo como gasto
+    if (lote.costo && lote.costo > 0) {
+      console.log('💰 Registrando costo inicial del lote como gasto:', lote.costo);
+      const { CategoriaGasto } = await import('../types/enums');
+      await registrarGastoEngorde({
+        loteId: docRef.id,
+        articuloId: 'costo-inicial',
+        articuloNombre: 'Costo Inicial del Lote',
+        cantidad: lote.cantidadInicial,
+        precioUnitario: lote.costoUnitario || (lote.costo / lote.cantidadInicial),
+        total: lote.costo,
+        fecha: lote.fechaInicio,
+        categoria: CategoriaGasto.OTHER,
+        descripcion: `Costo inicial de compra de ${lote.cantidadInicial} pollitos de engorde`
+      });
+    }
     
     return {
       id: docRef.id,
@@ -119,6 +168,22 @@ export const finalizarLoteEngorde = async (id: string): Promise<void> => {
     });
   } catch (error) {
     console.error('Error al finalizar lote de engorde:', error);
+    throw error;
+  }
+};
+
+/**
+ * Eliminar un lote de pollos de engorde
+ */
+export const eliminarLoteEngorde = async (id: string): Promise<void> => {
+  try {
+    const userId = getCurrentUserId();
+    if (!userId) throw new Error('Usuario no autenticado');
+
+    const loteRef = doc(db, LOTES_COLLECTION, id);
+    await deleteDoc(loteRef);
+  } catch (error) {
+    console.error('Error al eliminar lote de engorde:', error);
     throw error;
   }
 };

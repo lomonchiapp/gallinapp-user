@@ -126,8 +126,8 @@ export default function AppHeader({
     }
   }, [isAuthenticated, isLoading, ponedorasLotes, levantesLotes, engordeLotes, registrosPeso, registrosHuevos]);
 
-  // Calcular total de notificaciones (unread + alertas de tracking)
-  const totalNotifications = isAuthenticated ? unreadCount + alertSummary.totalAlertas : 0;
+  // Solo mostrar notificaciones reales de Firebase, no las alertas de tracking
+  const totalNotifications = isAuthenticated ? unreadCount : 0;
   return (
     <View style={styles.header}>
       {/* Botón izquierdo (drawer o back) */}
@@ -167,14 +167,14 @@ export default function AppHeader({
             {showNotifications && (
               <TouchableOpacity 
                 style={styles.notificationButton}
-                onPress={() => router.push('/(tabs)/settings/notifications')}
+                onPress={() => router.push('/notifications')}
               >
                 <NotificationIconBadge 
                   count={totalNotifications}
-                  color={alertSummary.emergencias > 0 ? colors.danger : colors.warning}
+                  color={colors.danger}
                 >
                   <Ionicons 
-                    name={alertSummary.emergencias > 0 ? "notifications" : "notifications-outline"} 
+                    name={totalNotifications > 0 ? "notifications" : "notifications-outline"} 
                     size={24} 
                     color={tintColor} 
                   />

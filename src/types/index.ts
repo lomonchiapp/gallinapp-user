@@ -28,4 +28,6 @@ export * from './loteBase';
 export * from './notification';
 // Facturación
 export * from './facturacion';
+// Métricas de Referencia
+export * from './metricas-referencia';
 

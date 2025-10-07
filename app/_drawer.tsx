@@ -122,7 +122,7 @@ export default function CustomDrawerContent(props: any) {
           icon={({ color, size }) => (
             <Ionicons name="settings" size={size} color={color} />
           )}
-          onPress={() => router.push('/settings')}
+          onPress={() => router.push('/(tabs)/settings')}
           labelStyle={styles.menuItemText}
         />
 

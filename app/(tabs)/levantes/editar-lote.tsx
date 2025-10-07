@@ -51,6 +51,7 @@ export default function EditarLoteLevantesScreen() {
     const [galponSeleccionado, setGalponSeleccionado] = useState<string>('');
     const [mostrarRazas, setMostrarRazas] = useState(false);
     const [isSubmitting, setIsSubmitting] = useState(false);
+    const [diasMaduracion, setDiasMaduracion] = useState('');
 
     useEffect(() => {
         if (loteId) {
@@ -71,6 +72,9 @@ export default function EditarLoteLevantesScreen() {
                 setObservaciones(loteActual.observaciones);
             }
             setGalponSeleccionado(loteActual.galponId ?? '');
+            if (loteActual.diasMaduracion) {
+                setDiasMaduracion(loteActual.diasMaduracion.toString());
+            }
         }
     }, [loteActual]);
 
@@ -163,6 +167,7 @@ export default function EditarLoteLevantesScreen() {
                 estado: estado,
                 ...(observaciones.trim() && { observaciones: observaciones.trim() }),
                 galponId: galponSeleccionado,
+                ...(diasMaduracion && { diasMaduracion: parseInt(diasMaduracion, 10) }),
             });
 
             Alert.alert(
@@ -356,6 +361,19 @@ export default function EditarLoteLevantesScreen() {
                             </Text>
                         </TouchableOpacity>
                     </View>
+                </View>
+
+                <View style={styles.formGroup}>
+                    <Text style={styles.label}>Días de Maduración</Text>
+                    <Input
+                        value={diasMaduracion}
+                        onChangeText={setDiasMaduracion}
+                        placeholder="Ej: 120"
+                        keyboardType="numeric"
+                    />
+                    <Text style={styles.helperText}>
+                        Días estimados hasta la maduración/venta del lote
+                    </Text>
                 </View>
 
                 <View style={styles.formGroup}>
