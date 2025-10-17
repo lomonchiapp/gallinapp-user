@@ -39,10 +39,12 @@ export interface ProductoLoteCompleto extends ProductoBase {
 // Producto específico para unidades individuales
 export interface ProductoUnidades extends ProductoBase {
   tipo: TipoProducto.UNIDADES_GALLINAS_PONEDORAS | TipoProducto.UNIDADES_POLLOS_LEVANTE | TipoProducto.UNIDADES_POLLOS_ENGORDE;
+  loteId: string;
+  edadActual: number;
+  cantidadTotal: number;
   raza: string;
-  edadPromedio: number;
+  fechaInicio: Date;
   pesoPromedio?: number;
-  origen?: string; // De qué lotes provienen
 }
 
 // Producto específico para huevos

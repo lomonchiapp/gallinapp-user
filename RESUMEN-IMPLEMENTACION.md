@@ -261,3 +261,14 @@ Has logrado transformar el sistema de configuración de **casi no funcional** (1
 - UI lista para producción
 
 **Próximo paso recomendado**: Integrar el componente `PerformanceComparison` en las páginas de detalles de lote para que los usuarios puedan ver el análisis de desempeño completo.
+
+
+
+
+
+
+
+
+
+
+

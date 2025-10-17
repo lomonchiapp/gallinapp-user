@@ -3,30 +3,37 @@
  */
 
 import { create } from 'zustand';
+import { runAutomaticWelfareCheck } from '../services/animal-welfare-monitoring.service';
+import { costosProduccionHuevosService } from '../services/costos-produccion-huevos.service';
 import { obtenerRegistrosMortalidad } from '../services/mortality.service';
 import {
-  actualizarLotePonedora,
-  calcularEstadisticasLotePonedora,
-  crearLotePonedora,
-  eliminarLotePonedora,
-  finalizarLotePonedora,
-  obtenerGastosPonedora,
-  obtenerIngresosPonedora,
-  obtenerLotePonedora,
-  obtenerLotesPonedoras,
-  obtenerRegistrosDiarios,
-  obtenerRegistrosHuevos,
-  obtenerVentasHuevos,
-  registrarGastoPonedora,
-  registrarIngresoPonedora,
-  registrarProduccionDiaria,
-  registrarProduccionHuevos,
-  registrarVentaHuevos,
-  subscribeToPonedoras
+    actualizarLotePonedora,
+    calcularEstadisticasLotePonedora,
+    crearLotePonedora,
+    eliminarLotePonedora,
+    finalizarLotePonedora,
+    obtenerGastosPonedora,
+    obtenerIngresosPonedora,
+    obtenerLotePonedora,
+    obtenerLotesPonedoras,
+    obtenerRegistrosDiarios,
+    obtenerRegistrosHuevos,
+    obtenerVentasHuevos,
+    registrarGastoPonedora,
+    registrarIngresoPonedora,
+    registrarProduccionDiaria,
+    registrarProduccionHuevos,
+    registrarVentaHuevos,
+    subscribeToPonedoras
 } from '../services/ponedoras.service';
 import { LotePonedora, TipoAve } from '../types';
 // Interfaces temporales para el store - deben coincidir con las del servicio
 import { EstadoLote, Gasto } from '../types';
+import {
+    AnalisisCostroPorFases,
+    CostoProduccionDiario,
+    EstadisticasRendimientoHuevos
+} from '../types/costosProduccionHuevos';
 
 interface EstadisticasLotePonedora {
   loteId: string;
@@ -107,6 +114,16 @@ interface PonedorasState {
   filtro: FiltroLote | undefined;
   isLoading: boolean;
   error: string | null;
+
+  // Estado para costos de producción de huevos
+  costosProduccion: {
+    costoDelDia: CostoProduccionDiario | null;
+    analisisPorFases: AnalisisCostroPorFases | null;
+    estadisticasRendimiento: EstadisticasRendimientoHuevos | null;
+    costosPorLote: { [loteId: string]: CostoProduccionDiario[] };
+    isLoadingCostos: boolean;
+    errorCostos: string | null;
+  };
   
   // Acciones - Lotes
   cargarLotes: (filtro?: FiltroLote) => Promise<void>;
@@ -152,12 +169,19 @@ interface PonedorasState {
   // Acciones - Refrescar datos
   refrescarDatosLote: (loteId: string) => Promise<void>;
   
-  
+
   // Acciones - Filtros
   setFiltro: (filtro: FiltroLote | undefined) => void;
   
   // Acciones - Errores
   clearError: () => void;
+
+  // Acciones - Costos de producción de huevos
+  calcularCostoProduccionDiario: (loteId: string, fecha?: Date) => Promise<void>;
+  analizarCostoPorFases: (loteId: string) => Promise<void>;
+  obtenerEstadisticasRendimientoCostos: (loteId: string, dias?: number) => Promise<void>;
+  clearErrorCostos: () => void;
+  resetCostosProduccion: () => void;
 }
 
 export const usePonedorasStore = create<PonedorasState>((set, get) => ({
@@ -179,6 +203,16 @@ export const usePonedorasStore = create<PonedorasState>((set, get) => ({
   filtro: undefined,
   isLoading: false,
   error: null,
+
+  // Estado inicial para costos de producción de huevos
+  costosProduccion: {
+    costoDelDia: null,
+    analisisPorFases: null,
+    estadisticasRendimiento: null,
+    costosPorLote: {},
+    isLoadingCostos: false,
+    errorCostos: null
+  },
   
   // Acciones - Lotes
   cargarLotes: async (filtro?: FiltroLote) => {
@@ -672,13 +706,171 @@ export const usePonedorasStore = create<PonedorasState>((set, get) => ({
 
   // Suscripción a ponedoras
   suscribirseAPonedoras: () => {
-    return subscribeToPonedoras(lotes => {
+    return subscribeToPonedoras(async (lotes) => {
       set({ lotes, error: null });
+      
+      // 🐔 MONITOREO AUTOMÁTICO DE BIENESTAR ANIMAL
+      try {
+        console.log('🐔 [Ponedoras] Ejecutando monitoreo automático de bienestar animal...');
+        
+        const { useMortalityStore } = await import('./mortalityStore');
+        
+        // Para ponedoras necesitamos registros de huevos
+        const state = usePonedorasStore.getState();
+        const registrosHuevos = state.registrosHuevos || [];
+        const registrosMortalidad = useMortalityStore.getState().registros || [];
+        
+        await runAutomaticWelfareCheck(
+          lotes,
+          [], // Ponedoras no usan registros de peso regularmente
+          registrosHuevos,
+          registrosMortalidad
+        );
+        
+        console.log('✅ [Ponedoras] Monitoreo de bienestar completado');
+      } catch (error) {
+        console.error('❌ [Ponedoras] Error en monitoreo automático:', error);
+      }
     });
   },
 
   // Acciones - Errores
-  clearError: () => set({ error: null })
+  clearError: () => set({ error: null }),
+
+  // Acciones - Costos de producción de huevos
+  calcularCostoProduccionDiario: async (loteId: string, fecha: Date = new Date()) => {
+    set(state => ({
+      costosProduccion: {
+        ...state.costosProduccion,
+        isLoadingCostos: true,
+        errorCostos: null
+      }
+    }));
+
+    try {
+      const costoDelDia = await costosProduccionHuevosService.calcularCostoProduccionDiario(loteId, fecha);
+      
+      set(state => ({
+        costosProduccion: {
+          ...state.costosProduccion,
+          costoDelDia,
+          isLoadingCostos: false,
+          // Actualizar cache de costos por lote
+          costosPorLote: {
+            ...state.costosProduccion.costosPorLote,
+            [loteId]: costoDelDia 
+              ? [costoDelDia, ...(state.costosProduccion.costosPorLote[loteId] || []).filter(c => 
+                  c.fecha.toDateString() !== fecha.toDateString()
+                )]
+              : state.costosProduccion.costosPorLote[loteId] || []
+          }
+        }
+      }));
+
+      console.log('✅ Costo de producción diario calculado:', costoDelDia);
+    } catch (error: any) {
+      console.error('❌ Error al calcular costo de producción diario:', error);
+      set(state => ({
+        costosProduccion: {
+          ...state.costosProduccion,
+          isLoadingCostos: false,
+          errorCostos: error.message || 'Error al calcular costo de producción diario'
+        }
+      }));
+    }
+  },
+
+  analizarCostoPorFases: async (loteId: string) => {
+    set(state => ({
+      costosProduccion: {
+        ...state.costosProduccion,
+        isLoadingCostos: true,
+        errorCostos: null
+      }
+    }));
+
+    try {
+      const analisisPorFases = await costosProduccionHuevosService.analizarCostoPorFases(loteId);
+      
+      set(state => ({
+        costosProduccion: {
+          ...state.costosProduccion,
+          analisisPorFases,
+          isLoadingCostos: false
+        }
+      }));
+
+      console.log('✅ Análisis por fases completado:', analisisPorFases);
+    } catch (error: any) {
+      console.error('❌ Error al analizar costo por fases:', error);
+      set(state => ({
+        costosProduccion: {
+          ...state.costosProduccion,
+          isLoadingCostos: false,
+          errorCostos: error.message || 'Error al analizar costo por fases'
+        }
+      }));
+    }
+  },
+
+  obtenerEstadisticasRendimientoCostos: async (loteId: string, dias: number = 30) => {
+    set(state => ({
+      costosProduccion: {
+        ...state.costosProduccion,
+        isLoadingCostos: true,
+        errorCostos: null
+      }
+    }));
+
+    try {
+      const fechaFin = new Date();
+      const fechaInicio = new Date();
+      fechaInicio.setDate(fechaInicio.getDate() - dias);
+
+      const estadisticasRendimiento = await costosProduccionHuevosService.obtenerEstadisticasRendimiento(
+        loteId,
+        fechaInicio,
+        fechaFin
+      );
+      
+      set(state => ({
+        costosProduccion: {
+          ...state.costosProduccion,
+          estadisticasRendimiento,
+          isLoadingCostos: false
+        }
+      }));
+
+      console.log('✅ Estadísticas de rendimiento obtenidas:', estadisticasRendimiento);
+    } catch (error: any) {
+      console.error('❌ Error al obtener estadísticas de rendimiento:', error);
+      set(state => ({
+        costosProduccion: {
+          ...state.costosProduccion,
+          isLoadingCostos: false,
+          errorCostos: error.message || 'Error al obtener estadísticas de rendimiento'
+        }
+      }));
+    }
+  },
+
+  clearErrorCostos: () => set(state => ({
+    costosProduccion: {
+      ...state.costosProduccion,
+      errorCostos: null
+    }
+  })),
+
+  resetCostosProduccion: () => set(state => ({
+    costosProduccion: {
+      costoDelDia: null,
+      analisisPorFases: null,
+      estadisticasRendimiento: null,
+      costosPorLote: {},
+      isLoadingCostos: false,
+      errorCostos: null
+    }
+  }))
 }));
 
 

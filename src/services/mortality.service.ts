@@ -177,5 +177,56 @@ export const obtenerTotalMortalidad = async (
   }
 };
 
+/**
+ * Suscribirse a cambios en registros de mortalidad en tiempo real
+ */
+export const suscribirseAMortalidad = (
+  tipoLote: TipoAve,
+  callback: (registros: RegistroMortalidad[]) => void
+): (() => void) => {
+  try {
+    const userId = getCurrentUserId();
+    if (!userId) {
+      console.log('Usuario no autenticado, no se puede suscribir');
+      return () => {};
+    }
+    
+    const { onSnapshot } = require('firebase/firestore');
+    
+    const q = query(
+      collection(db, MORTALIDAD_COLLECTION),
+      where('createdBy', '==', userId),
+      where('tipoLote', '==', tipoLote),
+      orderBy('fecha', 'desc')
+    );
+    
+    const unsubscribe = onSnapshot(q, (querySnapshot: any) => {
+      const registros = querySnapshot.docs.map((doc: any) => {
+        const data = doc.data();
+        return {
+          id: doc.id,
+          loteId: data.loteId,
+          tipoLote: data.tipoLote,
+          fecha: data.fecha.toDate ? data.fecha.toDate() : new Date(data.fecha),
+          cantidad: data.cantidad,
+          causa: data.causa || '',
+          createdBy: data.createdBy,
+          createdAt: data.createdAt?.toDate ? data.createdAt.toDate() : new Date(),
+        } as RegistroMortalidad;
+      });
+      
+      console.log(`🔔 Actualización de mortalidad ${tipoLote}: ${registros.length} registros`);
+      callback(registros);
+    }, (error: any) => {
+      console.error('Error en suscripción de mortalidad:', error);
+    });
+    
+    return unsubscribe;
+  } catch (error) {
+    console.error('Error al suscribirse a mortalidad:', error);
+    return () => {};
+  }
+};
+
 
 

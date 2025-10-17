@@ -54,6 +54,13 @@ export enum EstadoLote {
   FINALIZADO = 'FINALIZADO',
   CANCELADO = 'CANCELADO',
   VENDIDO = 'VENDIDO',
+  TRANSFERIDO = 'TRANSFERIDO', // Para lotes de levante transferidos a ponedoras
+}
+
+// Enums para subtipo de levante
+export enum SubtipoLevante {
+  LEVANTE_ENGORDE = 'LEVANTE_ENGORDE',       // Pollitos para engorde
+  LEVANTE_PONEDORAS = 'LEVANTE_PONEDORAS',   // Pollitas para producción de huevos
 }
 
 // Enums para unidades de medida

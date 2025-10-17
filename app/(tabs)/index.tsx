@@ -5,10 +5,11 @@
 import { useLevantesStore } from '@/src/stores/levantesStore';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { RefreshControl, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import Card from '../../src/components/ui/Card';
 import { colors } from '../../src/constants/colors';
+import { initializePushNotifications } from '../../src/services/push-notifications.service';
 import { useAppConfigStore } from '../../src/stores/appConfigStore';
 import { useAuthStore } from '../../src/stores/authStore';
 import { useEngordeStore } from '../../src/stores/engordeStore';
@@ -19,6 +20,7 @@ export default function DashboardScreen() {
   const { user } = useAuthStore();
   const router = useRouter();
   const [refreshing, setRefreshing] = useState(false);
+  const pushNotificationsInitialized = useRef(false);
   
   // Stores
   const ponedorasStore = usePonedorasStore();
@@ -46,6 +48,17 @@ export default function DashboardScreen() {
       cargarEstadisticasFinancieras();
     }
   }, [config, ponedorasStore.lotes, engordeStore.lotes, levantesStore.lotes]);
+
+  // Inicializar push notifications cuando el usuario esté autenticado
+  useEffect(() => {
+    if (user && !pushNotificationsInitialized.current) {
+      console.log('✅ Dashboard: Usuario autenticado - Inicializando push notifications...');
+      pushNotificationsInitialized.current = true;
+      initializePushNotifications().catch((error) => {
+        console.error('❌ Error al inicializar push notifications:', error);
+      });
+    }
+  }, [user]);
   
   const cargarDatosIniciales = async () => {
     try {

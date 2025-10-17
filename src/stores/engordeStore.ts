@@ -3,6 +3,7 @@
  */
 
 import { create } from 'zustand';
+import { runAutomaticWelfareCheck } from '../services/animal-welfare-monitoring.service';
 import {
     actualizarLoteEngorde,
     crearLoteEngorde,
@@ -170,8 +171,30 @@ export const useEngordeStore = create<EngordeState>((set, get) => ({
   },
   
   suscribirseAEngorde: () => {
-    return suscribirseALotesEngorde((lotes) => {
+    return suscribirseALotesEngorde(async (lotes) => {
       set({ lotes, error: null });
+      
+      // 🐔 MONITOREO AUTOMÁTICO DE BIENESTAR ANIMAL
+      try {
+        console.log('🐔 [Engorde] Ejecutando monitoreo automático de bienestar animal...');
+        
+        const { usePesoStore } = await import('./pesoStore');
+        const { useMortalityStore } = await import('./mortalityStore');
+        
+        const registrosPeso = usePesoStore.getState().registrosPeso || [];
+        const registrosMortalidad = useMortalityStore.getState().registros || [];
+        
+        await runAutomaticWelfareCheck(
+          lotes,
+          registrosPeso,
+          [],
+          registrosMortalidad
+        );
+        
+        console.log('✅ [Engorde] Monitoreo de bienestar completado');
+      } catch (error) {
+        console.error('❌ [Engorde] Error en monitoreo automático:', error);
+      }
     });
   },
   

@@ -204,3 +204,14 @@ export const METRICAS_PREDEFINIDAS = {
   },
 };
 
+
+
+
+
+
+
+
+
+
+
+

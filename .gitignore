@@ -41,3 +41,10 @@ app-example
 # generated native folders
 /ios
 /android
+
+# EAS Submit credentials (CRITICAL - DO NOT COMMIT)
+android-service-account.json
+google-services.json
+GoogleService-Info.plist
+*.keystore
+*.jks

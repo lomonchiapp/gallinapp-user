@@ -85,14 +85,24 @@ export const obtenerGastos = async (loteId?: string, tipoLote?: TipoAve): Promis
       let tipoLote = data.tipoLote;
       if (typeof tipoLote === 'string') {
         switch (tipoLote) {
+          // Casos para POLLO_ENGORDE
           case 'engorde':
+          case 'pollos_engorde':
+          case TipoAve.POLLO_ENGORDE:
             tipoLote = TipoAve.POLLO_ENGORDE;
             break;
+          // Casos para POLLO_LEVANTE
           case 'israelies':
           case 'levantes':
+          case 'pollos_levante':
+          case TipoAve.POLLO_LEVANTE:
             tipoLote = TipoAve.POLLO_LEVANTE;
             break;
+          // Casos para PONEDORA
           case 'ponedoras':
+          case 'ponedora':
+          case 'gallina_ponedora':
+          case TipoAve.PONEDORA:
             tipoLote = TipoAve.PONEDORA;
             break;
           default:
@@ -287,14 +297,24 @@ export const subscribeToGastosByTipo = (
       let tipoLote = data.tipoLote;
       if (typeof tipoLote === 'string') {
         switch (tipoLote) {
+          // Casos para POLLO_ENGORDE
           case 'engorde':
+          case 'pollos_engorde':
+          case TipoAve.POLLO_ENGORDE:
             tipoLote = TipoAve.POLLO_ENGORDE;
             break;
+          // Casos para POLLO_LEVANTE
           case 'israelies':
           case 'levantes':
+          case 'pollos_levante':
+          case TipoAve.POLLO_LEVANTE:
             tipoLote = TipoAve.POLLO_LEVANTE;
             break;
+          // Casos para PONEDORA
           case 'ponedoras':
+          case 'ponedora':
+          case 'gallina_ponedora':
+          case TipoAve.PONEDORA:
             tipoLote = TipoAve.PONEDORA;
             break;
           default:

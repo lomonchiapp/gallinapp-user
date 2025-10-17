@@ -854,11 +854,20 @@ function TabGastos({ lote, loteId, onRegistrarGasto }: { lote: LoteEngorde; lote
     );
   }
 
-  // Calcular el total de gastos
-  const gastosAdicionales = gastos.reduce((total, gasto) => total + gasto.total, 0);
-  
   // Verificar si hay costo inicial del lote
   const costoInicialLote = lote.costo || 0;
+  
+  // Filtrar gastos para excluir el costo inicial del lote si está incluido
+  // Los gastos adicionales NO deben incluir el costo inicial del lote
+  const gastosAdicionalesFiltrados = gastos.filter(gasto => {
+    // Excluir gastos que sean el costo inicial del lote
+    // (por ejemplo, gastos con descripción "Costo inicial del lote" o similar)
+    return !(gasto.descripcion?.toLowerCase().includes('costo inicial') || 
+             gasto.articuloNombre?.toLowerCase().includes('costo inicial'));
+  });
+  
+  // Calcular el total de gastos adicionales (sin incluir costo inicial)
+  const gastosAdicionales = gastosAdicionalesFiltrados.reduce((total, gasto) => total + gasto.total, 0);
   
   // Calcular el total general (costo inicial + gastos adicionales)
   const totalGeneral = costoInicialLote + gastosAdicionales;
@@ -895,7 +904,7 @@ function TabGastos({ lote, loteId, onRegistrarGasto }: { lote: LoteEngorde; lote
           <View style={styles.resumenRow}>
             <View style={styles.resumenLabelContainer}>
               <Ionicons name="receipt" size={16} color={colors.textMedium} />
-              <Text style={styles.resumenLabel}>Gastos adicionales ({gastos.length})</Text>
+              <Text style={styles.resumenLabel}>Gastos adicionales ({gastosAdicionalesFiltrados.length})</Text>
             </View>
             <Text style={styles.resumenValue}>RD${gastosAdicionales.toFixed(2)}</Text>
           </View>
@@ -928,7 +937,7 @@ function TabGastos({ lote, loteId, onRegistrarGasto }: { lote: LoteEngorde; lote
         </Card>
       )}
 
-      {gastos.length === 0 ? (
+      {gastosAdicionalesFiltrados.length === 0 ? (
         <Card style={styles.emptyCard}>
           <Ionicons name="receipt-outline" size={48} color={colors.lightGray} />
           <Text style={styles.emptyTitle}>No hay gastos adicionales registrados</Text>
@@ -945,7 +954,7 @@ function TabGastos({ lote, loteId, onRegistrarGasto }: { lote: LoteEngorde; lote
 
           {/* Lista de gastos */}
           <View style={styles.gastosList}>
-            {gastos.map((gasto) => (
+            {gastosAdicionalesFiltrados.map((gasto) => (
               <Card key={gasto.id} style={styles.gastoCard}>
                 <View style={styles.gastoHeader}>
                   <Text style={styles.gastoConcepto}>{gasto.articuloNombre}</Text>

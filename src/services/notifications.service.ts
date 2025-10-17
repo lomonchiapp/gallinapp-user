@@ -33,7 +33,334 @@ import {
 import { getCurrentUserId, isAuthenticated } from './auth.service';
 
 /**
- * Crear una nueva notificación
+ * Verificar si ya existe una notificación similar (deduplicación)
+ */
+const checkDuplicateNotification = async (
+  userId: string,
+  notificationData: CreateNotification
+): Promise<boolean> => {
+  try {
+    const now = new Date();
+    const oneHourAgo = new Date(now.getTime() - 60 * 60 * 1000); // Última hora
+    
+    // Crear clave única para deduplicación basada en tipo, título y datos clave
+    const deduplicationKey = createDeduplicationKey(notificationData);
+    
+    const notificationsRef = collection(db, 'notifications');
+    const q = query(
+      notificationsRef,
+      where('userId', '==', userId),
+      where('type', '==', notificationData.type),
+      where('title', '==', notificationData.title),
+      where('createdAt', '>=', oneHourAgo),
+      limit(1)
+    );
+    
+    const snapshot = await getDocs(q);
+    return !snapshot.empty;
+  } catch (error) {
+    console.warn('Error verificando duplicados:', error);
+    return false; // En caso de error, permitir creación
+  }
+};
+
+/**
+ * Crear clave única para deduplicación
+ */
+const createDeduplicationKey = (notificationData: CreateNotification): string => {
+  const keyParts = [
+    notificationData.type,
+    notificationData.title,
+    notificationData.data?.loteId || '',
+    notificationData.data?.razon || '',
+  ];
+  return keyParts.join('|');
+};
+
+/**
+ * Consolidar notificaciones similares en una sola
+ */
+const consolidateSimilarNotifications = async (
+  userId: string,
+  notificationData: CreateNotification
+): Promise<string> => {
+  try {
+    const now = new Date();
+    const last24Hours = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+    
+    // Buscar notificaciones similares en las últimas 24 horas
+    const notificationsRef = collection(db, 'notifications');
+    const q = query(
+      notificationsRef,
+      where('userId', '==', userId),
+      where('type', '==', notificationData.type),
+      where('createdAt', '>=', last24Hours),
+      orderBy('createdAt', 'desc'),
+      limit(5)
+    );
+    
+    const snapshot = await getDocs(q);
+    const similarNotifications = snapshot.docs.map(doc => ({
+      id: doc.id,
+      ...doc.data()
+    }));
+    
+    if (similarNotifications.length >= 3) {
+      // Si hay 3 o más notificaciones similares, crear una consolidada
+      const consolidatedTitle = getConsolidatedTitle(notificationData.type, similarNotifications.length + 1);
+      const consolidatedMessage = getConsolidatedMessage(notificationData.type, similarNotifications.length + 1);
+      
+      // Crear notificación consolidada
+      const consolidatedNotification = {
+        ...notificationData,
+        title: consolidatedTitle,
+        message: consolidatedMessage,
+        data: {
+          ...notificationData.data,
+          consolidated: true,
+          count: similarNotifications.length + 1,
+          originalNotifications: similarNotifications.map(n => n.id)
+        }
+      };
+      
+      // Marcar las notificaciones originales como leídas
+      const batch = writeBatch(db);
+      similarNotifications.forEach(notification => {
+        const ref = doc(db, 'notifications', notification.id);
+        batch.update(ref, { 
+          status: NotificationStatus.READ,
+          consolidated: true,
+          consolidatedAt: serverTimestamp()
+        });
+      });
+      await batch.commit();
+      
+      console.log(`🔔 Consolidando ${similarNotifications.length + 1} notificaciones similares`);
+      return await createNewNotification(consolidatedNotification);
+    }
+    
+    // Verificar límites de frecuencia antes de crear nueva notificación
+    const canCreate = await checkFrequencyLimits(userId, notificationData);
+    if (!canCreate) {
+      console.log('🔔 Notificación bloqueada por límites de frecuencia:', notificationData.title);
+      return '';
+    }
+    
+    return await createNewNotification(notificationData);
+  } catch (error) {
+    console.warn('Error consolidando notificaciones:', error);
+    return await createNewNotification(notificationData);
+  }
+};
+
+/**
+ * Crear título consolidado
+ */
+const getConsolidatedTitle = (type: NotificationType, count: number): string => {
+  switch (type) {
+    case NotificationType.MORTALIDAD_ALTA:
+      return `⚠️ ${count} Alertas de Mortalidad`;
+    case NotificationType.PRODUCCION_BAJA:
+      return `📉 ${count} Alertas de Producción`;
+    case NotificationType.CUSTOM:
+      return `🚨 ${count} Alertas de Emergencia`;
+    default:
+      return `${count} Notificaciones Similares`;
+  }
+};
+
+/**
+ * Crear mensaje consolidado
+ */
+const getConsolidatedMessage = (type: NotificationType, count: number): string => {
+  switch (type) {
+    case NotificationType.MORTALIDAD_ALTA:
+      return `Se han detectado ${count} alertas de mortalidad elevada en diferentes lotes. Revisa todos los lotes afectados.`;
+    case NotificationType.PRODUCCION_BAJA:
+      return `Se han detectado ${count} alertas de producción baja en diferentes lotes. Verifica las condiciones de los lotes.`;
+    case NotificationType.CUSTOM:
+      return `Se han detectado ${count} alertas de emergencia que requieren atención inmediata.`;
+    default:
+      return `Se han detectado ${count} notificaciones similares que requieren tu atención.`;
+  }
+};
+
+/**
+ * Verificar límites de frecuencia para evitar spam
+ */
+const checkFrequencyLimits = async (
+  userId: string,
+  notificationData: CreateNotification
+): Promise<boolean> => {
+  try {
+    const now = new Date();
+    const timeWindows = {
+      critical: 15 * 60 * 1000, // 15 minutos para críticas
+      high: 30 * 60 * 1000,     // 30 minutos para altas
+      medium: 60 * 60 * 1000,    // 1 hora para medias
+      low: 2 * 60 * 60 * 1000,   // 2 horas para bajas
+    };
+    
+    const timeWindow = timeWindows[notificationData.priority] || timeWindows.medium;
+    const windowStart = new Date(now.getTime() - timeWindow);
+    
+    const notificationsRef = collection(db, 'notifications');
+    const q = query(
+      notificationsRef,
+      where('userId', '==', userId),
+      where('type', '==', notificationData.type),
+      where('createdAt', '>=', windowStart),
+      limit(5)
+    );
+    
+    const snapshot = await getDocs(q);
+    const recentCount = snapshot.size;
+    
+    // Límites por prioridad
+    const limits = {
+      [NotificationPriority.CRITICAL]: 3, // Máximo 3 críticas en 15 min
+      [NotificationPriority.HIGH]: 2,     // Máximo 2 altas en 30 min
+      [NotificationPriority.MEDIUM]: 1,  // Máximo 1 media en 1 hora
+      [NotificationPriority.LOW]: 1,     // Máximo 1 baja en 2 horas
+    };
+    
+    const limit = limits[notificationData.priority] || 1;
+    
+    if (recentCount >= limit) {
+      console.log(`🔔 Límite de frecuencia alcanzado: ${recentCount}/${limit} notificaciones ${notificationData.priority} en ${timeWindow/60000} minutos`);
+      return false;
+    }
+    
+    return true;
+  } catch (error) {
+    console.warn('Error verificando límites de frecuencia:', error);
+    return true; // En caso de error, permitir creación
+  }
+};
+
+/**
+ * Crear nueva notificación sin verificaciones adicionales
+ */
+const createNewNotification = async (notificationData: CreateNotification): Promise<string> => {
+  const userId = notificationData.userId || getCurrentUserId();
+  
+  const notification = {
+    ...notificationData,
+    userId,
+    status: NotificationStatus.UNREAD,
+    createdAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+  };
+
+  const docRef = await addDoc(collection(db, 'notifications'), notification);
+  
+  // Programar push notification si está habilitado
+  if (notificationData.sendPush) {
+    await schedulePushNotification(docRef.id, notification);
+  }
+
+  return docRef.id;
+};
+
+/**
+ * Limpiar notificaciones duplicadas existentes
+ */
+export const cleanupDuplicateNotifications = async (userId?: string): Promise<void> => {
+  try {
+    const targetUserId = userId || getCurrentUserId();
+    if (!targetUserId) return;
+
+    console.log('🧹 Iniciando limpieza de notificaciones duplicadas...');
+    
+    const notificationsRef = collection(db, 'notifications');
+    const q = query(
+      notificationsRef,
+      where('userId', '==', targetUserId),
+      orderBy('createdAt', 'desc'),
+      limit(200) // Procesar últimas 200 notificaciones
+    );
+    
+    const snapshot = await getDocs(q);
+    if (snapshot.empty) return;
+    
+    // Agrupar por tipo y título para encontrar duplicados
+    const groupedNotifications = new Map<string, any[]>();
+    
+    snapshot.docs.forEach(doc => {
+      const data = doc.data();
+      const key = `${data.type}|${data.title}`;
+      
+      if (!groupedNotifications.has(key)) {
+        groupedNotifications.set(key, []);
+      }
+      groupedNotifications.get(key)!.push({ id: doc.id, ...data });
+    });
+    
+    let duplicatesRemoved = 0;
+    const batch = writeBatch(db);
+    
+    // Eliminar duplicados (mantener solo la más reciente de cada grupo)
+    groupedNotifications.forEach((notifications, key) => {
+      if (notifications.length > 1) {
+        // Ordenar por fecha de creación (más reciente primero)
+        notifications.sort((a, b) => b.createdAt?.seconds - a.createdAt?.seconds);
+        
+        // Eliminar todas excepto la más reciente
+        for (let i = 1; i < notifications.length; i++) {
+          const ref = doc(db, 'notifications', notifications[i].id);
+          batch.delete(ref);
+          duplicatesRemoved++;
+        }
+      }
+    });
+    
+    if (duplicatesRemoved > 0) {
+      await batch.commit();
+      console.log(`🧹 Limpieza completada: ${duplicatesRemoved} notificaciones duplicadas eliminadas`);
+    } else {
+      console.log('🧹 No se encontraron notificaciones duplicadas');
+    }
+  } catch (error) {
+    console.warn('Error en limpieza de duplicados:', error);
+  }
+};
+
+/**
+ * Limpiar notificaciones antiguas y duplicadas
+ */
+export const cleanupOldNotifications = async (userId?: string): Promise<void> => {
+  try {
+    const targetUserId = userId || getCurrentUserId();
+    if (!targetUserId) return;
+
+    const now = new Date();
+    const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+    
+    const notificationsRef = collection(db, 'notifications');
+    const q = query(
+      notificationsRef,
+      where('userId', '==', targetUserId),
+      where('createdAt', '<', thirtyDaysAgo),
+      limit(100) // Procesar en lotes
+    );
+    
+    const snapshot = await getDocs(q);
+    if (snapshot.empty) return;
+    
+    const batch = writeBatch(db);
+    snapshot.docs.forEach(doc => {
+      batch.delete(doc.ref);
+    });
+    
+    await batch.commit();
+    console.log(`🧹 Limpieza: ${snapshot.size} notificaciones antiguas eliminadas`);
+  } catch (error) {
+    console.warn('Error en limpieza de notificaciones:', error);
+  }
+};
+
+/**
+ * Crear una nueva notificación con deduplicación y consolidación
  */
 export const createNotification = async (
   notificationData: CreateNotification
@@ -48,23 +375,15 @@ export const createNotification = async (
       throw new Error('Usuario no autenticado');
     }
 
-    const notification = {
-      ...notificationData,
-      userId,
-      status: NotificationStatus.UNREAD,
-      createdAt: serverTimestamp(),
-      sentToPush: false,
-      pushDelivered: false,
-    };
-
-    const docRef = await addDoc(collection(db, 'notifications'), notification);
-    
-    // Si está configurado para enviar push notification
-    if (notificationData.sendPush) {
-      await schedulePushNotification(docRef.id, notification);
+    // Verificar duplicados antes de crear
+    const isDuplicate = await checkDuplicateNotification(userId, notificationData);
+    if (isDuplicate) {
+      console.log('🔔 Notificación duplicada evitada:', notificationData.title);
+      return ''; // Retornar string vacío para indicar que no se creó
     }
-    
-    return docRef.id;
+
+    // Intentar consolidar notificaciones similares
+    return await consolidateSimilarNotifications(userId, notificationData);
   } catch (error) {
     console.error('Error al crear notificación:', error);
     throw error;
@@ -453,13 +772,78 @@ export const cleanupExpiredNotifications = async (): Promise<void> => {
 /**
  * Programar push notification (placeholder para implementación futura)
  */
+/**
+ * Programar y enviar push notification
+ * Esta función se llama automáticamente cuando se crea una notificación con sendPush: true
+ */
 const schedulePushNotification = async (
   notificationId: string,
   notification: any
 ): Promise<void> => {
-  // TODO: Implementar lógica de push notifications
-  // Aquí se integraría con Expo Notifications o Firebase Cloud Messaging
-  console.log('Push notification programada:', notificationId, notification.title);
+  try {
+    console.log('📤 Preparando push notification:', notification.title);
+
+    // Importar servicios dinámicamente para evitar dependencias circulares
+    const { getUserPushToken } = await import('./push-notifications.service');
+    const { sendPushNotification, createAnimalWelfareAlertMessage } = await import('./push-notification-sender.service');
+
+    // 1. Obtener token del usuario
+    const userId = notification.userId || getCurrentUserId();
+    if (!userId) {
+      console.warn('⚠️ No hay userId, no se puede enviar push');
+      return;
+    }
+
+    const token = await getUserPushToken(userId);
+    if (!token) {
+      console.warn('⚠️ Usuario no tiene token de push registrado');
+      return;
+    }
+
+    // 2. Crear mensaje de push formateado
+    const pushMessage = createAnimalWelfareAlertMessage(
+      token,
+      notification.title,
+      notification.message,
+      notification.priority,
+      {
+        notificationId,
+        ...notification.data,
+      }
+    );
+
+    // 3. Enviar push notification
+    const result = await sendPushNotification(pushMessage);
+
+    // 4. Actualizar estado en Firebase
+    if (result.status === 'ok') {
+      await updateDoc(doc(db, 'notifications', notificationId), {
+        sentToPush: true,
+        pushSentAt: serverTimestamp(),
+        pushTicketId: result.id,
+      });
+      console.log('✅ Push notification enviada y registrada en Firebase');
+    } else {
+      console.error('❌ Error al enviar push:', result.message);
+      await updateDoc(doc(db, 'notifications', notificationId), {
+        sentToPush: false,
+        pushError: result.message,
+        pushErrorDetails: result.details,
+      });
+    }
+  } catch (error) {
+    console.error('❌ Error al programar push notification:', error);
+    
+    // Registrar error en Firebase
+    try {
+      await updateDoc(doc(db, 'notifications', notificationId), {
+        sentToPush: false,
+        pushError: error instanceof Error ? error.message : 'Error desconocido',
+      });
+    } catch (updateError) {
+      console.error('❌ Error al actualizar estado de error:', updateError);
+    }
+  }
 };
 
 /**

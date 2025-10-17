@@ -17,6 +17,7 @@ import {
     TipoProducto
 } from '../types/facturacion';
 import { productosInventarioService } from './productos-inventario.service';
+import { procesarFacturaParaVentas } from './ventas.service';
 
 const STORAGE_KEYS = {
   FACTURAS: 'facturas',
@@ -285,6 +286,9 @@ class FacturacionService {
       // Actualizar inventario (reducir disponibilidad)
       await this.actualizarInventarioPorVenta(datosFactura.items);
 
+      // Procesar ventas para registro en lotes
+      await procesarFacturaParaVentas(nuevaFactura);
+
       return nuevaFactura;
     } catch (error) {
       console.error('Error al crear factura:', error);
@@ -337,7 +341,8 @@ class FacturacionService {
         // Actualizar inventario real de lotes
         await productosInventarioService.actualizarInventarioPorVenta(
           item.productoId, 
-          item.cantidad
+          item.cantidad,
+          item.producto.tipoAve
         );
       }
       

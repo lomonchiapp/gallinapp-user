@@ -399,3 +399,14 @@ function calcularEficienciaProyectada(params: {
 
 
 
+
+
+
+
+
+
+
+
+
+
+

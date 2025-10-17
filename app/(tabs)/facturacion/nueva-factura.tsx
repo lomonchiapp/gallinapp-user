@@ -7,7 +7,9 @@ import { useRouter } from 'expo-router';
 import React, { useEffect, useMemo, useState } from 'react';
 import {
     Alert,
+    KeyboardAvoidingView,
     Modal,
+    Platform,
     ScrollView,
     StyleSheet,
     Text,
@@ -19,7 +21,7 @@ import { Button } from '../../../src/components/ui/Button';
 import { Card } from '../../../src/components/ui/Card';
 import { Input } from '../../../src/components/ui/Input';
 import { colors } from '../../../src/constants/colors';
-import { useFacturacion } from '../../../src/hooks/useFacturacion';
+import { useFacturacionMejorado } from '../../../src/hooks/useFacturacionMejorado';
 import { TipoAve } from '../../../src/types/enums';
 import {
     Cliente,
@@ -67,7 +69,8 @@ export default function NuevaFacturaScreen() {
     crearCliente,
     actualizarProductos,
     refrescarDatos,
-  } = useFacturacion();
+    calcularItemFactura,
+  } = useFacturacionMejorado();
 
   const [clienteSeleccionado, setClienteSeleccionado] = useState<Cliente | null>(null);
   const [items, setItems] = useState<ItemFactura[]>([]);
@@ -133,7 +136,32 @@ export default function NuevaFacturaScreen() {
       return;
     }
 
-    const itemCalculado = facturacionService.calcularItemFactura(producto, cantidad);
+    // Verificar si ya existe este producto en la factura
+    const itemExistente = items.find(item => item.producto.id === producto.id);
+    if (itemExistente) {
+      Alert.alert(
+        'Producto ya agregado',
+        'Este producto ya está en la factura. ¿Deseas actualizar la cantidad?',
+        [
+          { text: 'Cancelar', style: 'cancel' },
+          { 
+            text: 'Actualizar', 
+            onPress: () => {
+              const nuevaCantidadTotal = itemExistente.cantidad + cantidad;
+              if (nuevaCantidadTotal > producto.disponible) {
+                Alert.alert('Inventario insuficiente', 'La cantidad total excede el inventario disponible.');
+                return;
+              }
+              actualizarCantidad(itemExistente.id, nuevaCantidadTotal);
+              setModalProductoVisible(false);
+            }
+          }
+        ]
+      );
+      return;
+    }
+
+    const itemCalculado = calcularItemFactura(producto, cantidad);
     const nuevoItem: ItemFactura = {
       ...itemCalculado,
       id: `${producto.id}-${Date.now()}`,
@@ -144,10 +172,22 @@ export default function NuevaFacturaScreen() {
   };
 
   const actualizarCantidad = (itemId: string, nuevaCantidad: number) => {
+    if (nuevaCantidad <= 0) {
+      eliminarItem(itemId);
+      return;
+    }
+
     setItems((prev) =>
       prev.map((item) => {
         if (item.id !== itemId) return item;
-        const calculado = facturacionService.calcularItemFactura(item.producto, nuevaCantidad);
+        
+        // Verificar que no exceda el inventario disponible
+        if (nuevaCantidad > item.producto.disponible) {
+          Alert.alert('Inventario insuficiente', 'La cantidad excede el inventario disponible.');
+          return item;
+        }
+        
+        const calculado = calcularItemFactura(item.producto, nuevaCantidad);
         return { ...item, ...calculado, id: item.id };
       })
     );
@@ -166,6 +206,8 @@ export default function NuevaFacturaScreen() {
 
   const guardarFactura = async () => {
     try {
+      console.log('🚀 Iniciando creación de factura...');
+      
       if (!clienteSeleccionado) {
         Alert.alert('Selecciona un cliente', 'Debes elegir un cliente para facturar.');
         return;
@@ -175,6 +217,13 @@ export default function NuevaFacturaScreen() {
         Alert.alert('Agrega productos', 'Incluye al menos un producto o lote en la factura.');
         return;
       }
+
+      console.log('📋 Datos de la factura:', {
+        cliente: clienteSeleccionado.nombre,
+        items: items.length,
+        metodoPago,
+        observaciones: observaciones.length
+      });
 
       setLoading(true);
 
@@ -187,25 +236,23 @@ export default function NuevaFacturaScreen() {
         estado: EstadoFactura.EMITIDA,
       };
 
-      const facturaCreada = await facturacionService.crearFactura(datosFactura, 'current-user');
+      console.log('💾 Enviando datos al servicio de facturación...');
+      const facturaCreada = await crearFactura(datosFactura);
       
-      Alert.alert('Factura creada', '¿Qué deseas hacer ahora?', [
-          {
-          text: 'Ver detalle',
-            onPress: () => router.replace(`/facturacion/detalle/${facturaCreada.id}`),
-          },
-          {
-          text: 'Nueva factura',
-          onPress: limpiarFormulario,
-          style: 'cancel',
-        },
-      ]);
-
-      refrescarDatos();
+      console.log('✅ Factura creada:', facturaCreada?.id);
+      
+      if (facturaCreada) {
+        limpiarFormulario();
+        router.replace(`/facturacion/detalle/${facturaCreada.id}`);
+      } else {
+        console.error('❌ No se pudo crear la factura - respuesta nula');
+        Alert.alert('Error', 'No se pudo crear la factura. Verifica los datos e inténtalo de nuevo.');
+      }
     } catch (error) {
-      console.error('Error al crear factura:', error);
-      Alert.alert('Error', 'Ocurrió un problema al crear la factura. Inténtalo de nuevo.');
+      console.error('❌ Error al crear factura:', error);
+      Alert.alert('Error', `Ocurrió un problema al crear la factura: ${error instanceof Error ? error.message : 'Error desconocido'}`);
     } finally {
+      console.log('🔄 Finalizando proceso de creación de factura');
       setLoading(false);
     }
   };
@@ -317,20 +364,35 @@ export default function NuevaFacturaScreen() {
         <View style={styles.itemRowFooter}>
           <View style={styles.itemQuantityContainer}>
             <TouchableOpacity
-              onPress={() =>
-                item.cantidad > 1 && actualizarCantidad(item.id, item.cantidad - 1)
-              }
+              onPress={() => actualizarCantidad(item.id, item.cantidad - 1)}
+              disabled={item.cantidad <= 1}
+              style={[styles.quantityButton, item.cantidad <= 1 && styles.quantityButtonDisabled]}
             >
-              <Ionicons name="remove-circle" size={20} color={colors.primary} />
+              <Ionicons 
+                name="remove-circle" 
+                size={20} 
+                color={item.cantidad <= 1 ? colors.lightGray : colors.primary} 
+              />
             </TouchableOpacity>
             <Text style={styles.itemQuantity}>{item.cantidad}</Text>
             <TouchableOpacity
               onPress={() => actualizarCantidad(item.id, item.cantidad + 1)}
+              disabled={item.cantidad >= item.producto.disponible}
+              style={[styles.quantityButton, item.cantidad >= item.producto.disponible && styles.quantityButtonDisabled]}
             >
-              <Ionicons name="add-circle" size={20} color={colors.primary} />
+              <Ionicons 
+                name="add-circle" 
+                size={20} 
+                color={item.cantidad >= item.producto.disponible ? colors.lightGray : colors.primary} 
+              />
             </TouchableOpacity>
-              </View>
-          <Text style={styles.itemRowTotal}>{formatearMoneda(item.total)}</Text>
+          </View>
+          <View style={styles.itemRowRight}>
+            <Text style={styles.itemRowTotal}>{formatearMoneda(item.total)}</Text>
+            <Text style={styles.itemRowSubtotal}>
+              {formatearMoneda(item.precioUnitario)} × {item.cantidad}
+            </Text>
+          </View>
         </View>
       </View>
     ));
@@ -446,10 +508,6 @@ export default function NuevaFacturaScreen() {
                 <Text style={styles.resumenValue}>-{formatearMoneda(resumenTotales.descuentoTotal)}</Text>
                 </View>
             ) : null}
-            <View style={styles.resumenRow}>
-              <Text style={styles.resumenLabel}>IVA</Text>
-              <Text style={styles.resumenValue}>{formatearMoneda(resumenTotales.impuestosTotal)}</Text>
-              </View>
             <View style={styles.resumenDivider} />
             <View style={styles.resumenRow}>
               <Text style={styles.resumenTotalLabel}>Total a facturar</Text>
@@ -565,114 +623,158 @@ function GestionClientesModal({
 }: GestionClientesModalProps) {
   return (
     <Modal visible={visible} animationType="slide" presentationStyle="pageSheet">
+      <KeyboardAvoidingView
+        style={{ flex: 1 }}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 100 : 60}
+      >
         <View style={styles.modalContainer}>
           <View style={styles.modalHeader}>
-          <Text style={styles.modalTitle}>Gestionar clientes</Text>
-          <TouchableOpacity onPress={onClose}>
-            <Ionicons name="close" size={20} color={colors.textDark} />
+            <Text style={styles.modalTitle}>Gestionar clientes</Text>
+            <TouchableOpacity onPress={onClose}>
+              <Ionicons name="close" size={20} color={colors.textDark} />
             </TouchableOpacity>
           </View>
-          
-        <ScrollView style={styles.modalScroll}>
-          <Card style={styles.modalSection}>
-            <Text style={styles.modalSectionTitle}>Buscar existente</Text>
-            <View style={styles.searchBar}>
-              <Ionicons name="search" size={16} color={colors.lightGray} />
-              <TextInput
-                value={busqueda}
-                onChangeText={setBusqueda}
-                placeholder="Buscar por nombre, documento o ciudad"
-                placeholderTextColor={colors.lightGray}
-                style={styles.searchInput}
-              />
-              {busqueda ? (
-                <TouchableOpacity onPress={() => setBusqueda('')}>
-                  <Ionicons name="close-circle" size={16} color={colors.lightGray} />
-                </TouchableOpacity>
-              ) : null}
-            </View>
 
-            {clientes.length === 0 ? (
-              <Text style={styles.emptyStateText}>No se encontraron clientes con ese filtro.</Text>
-            ) : (
-              <View style={styles.listContainer}>
-                {clientes.map((cliente) => (
-                  <TouchableOpacity
-                    key={cliente.id}
-                    style={styles.listItem}
-                    onPress={() => onSelect(cliente)}
-                  >
-                    <View style={styles.listAvatar}>
-                      <Text style={styles.listAvatarText}>{cliente.nombre.charAt(0).toUpperCase()}</Text>
-                    </View>
-                    <View style={styles.listInfo}>
-                      <Text style={styles.listTitle}>{cliente.nombre}</Text>
-                      <Text style={styles.listSubtitle}>
-                        {cliente.documento || 'Sin documento'} · {cliente.ciudad || 'Sin ciudad'}
-                      </Text>
-                    </View>
-                    <Ionicons name="chevron-forward" size={16} color={colors.lightGray} />
+          <View style={styles.modalContent}>
+            {/* Sección de búsqueda - siempre visible */}
+            <Card style={styles.modalSection}>
+              <Text style={styles.modalSectionTitle}>Buscar existente</Text>
+              <View style={styles.searchBar}>
+                <Ionicons name="search" size={16} color={colors.lightGray} />
+                <TextInput
+                  value={busqueda}
+                  onChangeText={setBusqueda}
+                  placeholder="Buscar por nombre, documento o ciudad"
+                  placeholderTextColor={colors.lightGray}
+                  style={styles.searchInput}
+                  returnKeyType="search"
+                />
+                {busqueda ? (
+                  <TouchableOpacity onPress={() => setBusqueda('')}>
+                    <Ionicons name="close-circle" size={16} color={colors.lightGray} />
                   </TouchableOpacity>
-                ))}
+                ) : null}
               </View>
-            )}
-          </Card>
 
-          <Card style={styles.modalSection}>
-            <Text style={styles.modalSectionTitle}>Crear nuevo cliente</Text>
-              <Input
-                label="Nombre *"
-                value={nuevoCliente.nombre}
-              onChangeText={(text) => setNuevoCliente((prev) => ({ ...prev, nombre: text }))}
-              placeholder="Nombre completo"
-              />
-              <Input
-                label="Documento"
-                value={nuevoCliente.documento}
-              onChangeText={(text) => setNuevoCliente((prev) => ({ ...prev, documento: text }))}
-                placeholder="Cédula o NIT"
-              />
-              <Input
-                label="Teléfono"
-                value={nuevoCliente.telefono}
-              onChangeText={(text) => setNuevoCliente((prev) => ({ ...prev, telefono: text }))}
-              placeholder="Teléfono"
-            />
-            <Input
-              label="Email"
-              value={nuevoCliente.email}
-              onChangeText={(text) => setNuevoCliente((prev) => ({ ...prev, email: text }))}
-              placeholder="Correo electrónico"
-              autoCapitalize="none"
-              keyboardType="email-address"
-            />
-            <Input
-              label="Dirección"
-              value={nuevoCliente.direccion}
-              onChangeText={(text) => setNuevoCliente((prev) => ({ ...prev, direccion: text }))}
-              placeholder="Dirección"
-            />
-            <View style={styles.inlineInputs}>
-              <Input
-                label="Ciudad"
-                value={nuevoCliente.ciudad}
-                onChangeText={(text) => setNuevoCliente((prev) => ({ ...prev, ciudad: text }))}
-                placeholder="Ciudad"
-                containerStyle={styles.inlineInput}
-              />
-              <Input
-                label="Departamento"
-                value={nuevoCliente.departamento}
-                onChangeText={(text) => setNuevoCliente((prev) => ({ ...prev, departamento: text }))}
-                placeholder="Departamento"
-                containerStyle={styles.inlineInput}
-              />
-            </View>
-            <Button title="Crear Cliente" onPress={onCreate} />
+              {clientes.length === 0 ? (
+                <Text style={styles.emptyStateText}>No se encontraron clientes con ese filtro.</Text>
+              ) : (
+                <ScrollView
+                  style={[styles.listContainer, { maxHeight: 200 }]}
+                  showsVerticalScrollIndicator={false}
+                  keyboardShouldPersistTaps="handled"
+                >
+                  {clientes.map((cliente) => (
+                    <TouchableOpacity
+                      key={cliente.id}
+                      style={styles.listItem}
+                      onPress={() => onSelect(cliente)}
+                    >
+                      <View style={styles.listAvatar}>
+                        <Text style={styles.listAvatarText}>{cliente.nombre.charAt(0).toUpperCase()}</Text>
+                      </View>
+                      <View style={styles.listInfo}>
+                        <Text style={styles.listTitle}>{cliente.nombre}</Text>
+                        <Text style={styles.listSubtitle}>
+                          {cliente.documento || 'Sin documento'} · {cliente.ciudad || 'Sin ciudad'}
+                        </Text>
+                      </View>
+                      <Ionicons name="chevron-forward" size={16} color={colors.lightGray} />
+                    </TouchableOpacity>
+                  ))}
+                </ScrollView>
+              )}
             </Card>
-          </ScrollView>
+
+            {/* Sección de formulario - con scroll independiente */}
+            <ScrollView
+              style={styles.formScroll}
+              showsVerticalScrollIndicator={false}
+              keyboardShouldPersistTaps="handled"
+            >
+              <Card style={styles.modalSection}>
+                <Text style={styles.modalSectionTitle}>Crear nuevo cliente</Text>
+
+                <Input
+                  label="Nombre *"
+                  value={nuevoCliente.nombre}
+                  onChangeText={(text) => setNuevoCliente((prev) => ({ ...prev, nombre: text }))}
+                  placeholder="Nombre completo"
+                  returnKeyType="next"
+                />
+
+                <View style={styles.rowInputs}>
+                  <Input
+                    label="Documento"
+                    value={nuevoCliente.documento}
+                    onChangeText={(text) => setNuevoCliente((prev) => ({ ...prev, documento: text }))}
+                    placeholder="Cédula o NIT"
+                    containerStyle={styles.rowInput}
+                    returnKeyType="next"
+                  />
+                  <Input
+                    label="Teléfono"
+                    value={nuevoCliente.telefono}
+                    onChangeText={(text) => setNuevoCliente((prev) => ({ ...prev, telefono: text }))}
+                    placeholder="Teléfono"
+                    containerStyle={styles.rowInput}
+                    keyboardType="phone-pad"
+                    returnKeyType="next"
+                  />
+                </View>
+
+                <Input
+                  label="Email"
+                  value={nuevoCliente.email}
+                  onChangeText={(text) => setNuevoCliente((prev) => ({ ...prev, email: text }))}
+                  placeholder="Correo electrónico"
+                  autoCapitalize="none"
+                  keyboardType="email-address"
+                  returnKeyType="next"
+                />
+
+                <Input
+                  label="Dirección"
+                  value={nuevoCliente.direccion}
+                  onChangeText={(text) => setNuevoCliente((prev) => ({ ...prev, direccion: text }))}
+                  placeholder="Dirección"
+                  returnKeyType="next"
+                />
+
+                <View style={styles.rowInputs}>
+                  <Input
+                    label="Ciudad"
+                    value={nuevoCliente.ciudad}
+                    onChangeText={(text) => setNuevoCliente((prev) => ({ ...prev, ciudad: text }))}
+                    placeholder="Ciudad"
+                    containerStyle={styles.rowInput}
+                    returnKeyType="next"
+                  />
+                  <Input
+                    label="Departamento"
+                    value={nuevoCliente.departamento}
+                    onChangeText={(text) => setNuevoCliente((prev) => ({ ...prev, departamento: text }))}
+                    placeholder="Departamento"
+                    containerStyle={styles.rowInput}
+                    returnKeyType="done"
+                  />
+                </View>
+              </Card>
+            </ScrollView>
+          </View>
+
+          {/* Botón flotante - siempre visible */}
+          <View style={styles.floatingButton}>
+            <Button
+              title="Crear Cliente"
+              onPress={onCreate}
+              style={styles.createButton}
+            />
+          </View>
         </View>
-      </Modal>
+      </KeyboardAvoidingView>
+    </Modal>
   );
 }
 
@@ -726,11 +828,27 @@ function GestionInventarioSheet({
 
   const confirmarSeleccion = () => {
     if (!productoSeleccionado) return;
+    
     const cantidadNum = parseInt(cantidad, 10);
     if (isNaN(cantidadNum) || cantidadNum <= 0) {
       Alert.alert('Cantidad inválida', 'Introduce una cantidad mayor a cero.');
       return;
     }
+    
+    if (cantidadNum > productoSeleccionado.disponible) {
+      Alert.alert(
+        'Cantidad excede inventario', 
+        `Solo hay ${productoSeleccionado.disponible} ${productoSeleccionado.unidadMedida} disponibles.`
+      );
+      return;
+    }
+    
+    console.log('✅ Confirmando selección:', {
+      producto: productoSeleccionado.nombre,
+      cantidad: cantidadNum,
+      disponible: productoSeleccionado.disponible
+    });
+    
     onConfirmar(productoSeleccionado, cantidadNum);
     onSeleccionarProducto(null);
     onCambiarCantidad('1');
@@ -807,13 +925,20 @@ function GestionInventarioSheet({
                   <Text style={styles.sheetCounterLabel}>Disponible</Text>
                   <Text style={styles.sheetCounterValue}>
                     {producto.disponible} {producto.unidadMedida}
-                </Text>
-              </View>
+                  </Text>
+                </View>
                 <View style={styles.sheetPrice}>
-                  <Text style={styles.sheetPriceLabel}>Precio</Text>
+                  <Text style={styles.sheetPriceLabel}>
+                    {producto.tipo === TipoProducto.LOTE_COMPLETO ? 'Precio total' : 'Precio unitario'}
+                  </Text>
                   <Text style={styles.sheetPriceValue}>
                     {formatearMoneda(producto.precioUnitario)}
                   </Text>
+                  {producto.tipo === TipoProducto.LOTE_COMPLETO && 'cantidadTotal' in producto && (
+                    <Text style={styles.sheetPriceSubtext}>
+                      {formatearMoneda(Math.round(producto.precioUnitario / producto.cantidadTotal))} por unidad
+                    </Text>
+                  )}
                 </View>
               </View>
             </TouchableOpacity>
@@ -935,7 +1060,26 @@ function GestionInventarioSheet({
                   >
                     <Ionicons name="remove" size={18} color={colors.primary} />
                   </TouchableOpacity>
-                  <Text style={styles.quantityValue}>{cantidad}</Text>
+                  
+                  <View style={styles.quantityInputContainer}>
+                    <TextInput
+                      style={styles.quantityInput}
+                      value={cantidad}
+                      onChangeText={(text) => {
+                        // Solo permitir números
+                        const numericValue = text.replace(/[^0-9]/g, '');
+                        if (numericValue === '' || parseInt(numericValue, 10) > 0) {
+                          onCambiarCantidad(numericValue);
+                        }
+                      }}
+                      keyboardType="numeric"
+                      selectTextOnFocus
+                      placeholder="1"
+                      placeholderTextColor={colors.lightGray}
+                      maxLength={6} // Máximo 999,999 unidades
+                    />
+                  </View>
+                  
                   <TouchableOpacity
                     style={styles.quantityButton}
                     onPress={() => {
@@ -1209,16 +1353,30 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
     paddingHorizontal: 10,
   },
+  quantityButton: {
+    padding: 4,
+  },
+  quantityButtonDisabled: {
+    opacity: 0.5,
+  },
   itemQuantity: {
     fontSize: 16,
     fontWeight: 'bold',
     color: colors.text,
     marginHorizontal: 10,
   },
+  itemRowRight: {
+    alignItems: 'flex-end',
+  },
   itemRowTotal: {
     fontSize: 18,
     fontWeight: 'bold',
     color: colors.primary,
+  },
+  itemRowSubtotal: {
+    fontSize: 12,
+    color: colors.lightGray,
+    marginTop: 2,
   },
   metodoPagoCard: {
     padding: 16,
@@ -1622,6 +1780,11 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     color: colors.primary,
   },
+  sheetPriceSubtext: {
+    fontSize: 11,
+    color: colors.textMedium,
+    marginTop: 2,
+  },
   sheetEmptyHistoric: {
     alignItems: 'center',
     justifyContent: 'center',
@@ -1645,6 +1808,23 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     backgroundColor: colors.white,
   },
+  quantityInputContainer: {
+    minWidth: 80,
+    alignItems: 'center',
+  },
+  quantityInput: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: colors.textDark,
+    textAlign: 'center',
+    borderWidth: 1,
+    borderColor: colors.primary,
+    borderRadius: 8,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    backgroundColor: colors.white,
+    minWidth: 60,
+  },
   quantityValue: {
     fontSize: 20,
     fontWeight: 'bold',
@@ -1655,6 +1835,47 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     borderTopColor: colors.veryLightGray,
     backgroundColor: colors.background,
+  },
+
+  // Nuevos estilos para el modal mejorado de clientes
+  modalContent: {
+    flex: 1,
+    flexDirection: 'column',
+  },
+  formScroll: {
+    flex: 1,
+    paddingBottom: 140, // Más espacio para el botón flotante cuando teclado está abierto
+  },
+  rowInputs: {
+    flexDirection: 'row',
+    gap: 12,
+    marginBottom: 16,
+  },
+  rowInput: {
+    flex: 1,
+  },
+  floatingButton: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    padding: 20,
+    backgroundColor: colors.white,
+    borderTopWidth: 1,
+    borderTopColor: colors.veryLightGray,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: -2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 8,
+  },
+  createButton: {
+    borderRadius: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.15,
+    shadowRadius: 4,
+    elevation: 4,
   },
 });
 

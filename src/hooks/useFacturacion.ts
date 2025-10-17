@@ -5,9 +5,10 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Alert } from 'react-native';
 import { suscribirseALotesEngorde } from '../services/engorde.service';
-import { facturacionService } from '../services/facturacion.service';
+import { facturacionTransaccionalService, suscribirseAClientes, suscribirseAFacturas } from '../services/facturacion-transaccional.service';
 import { subscribeToLevantes } from '../services/levantes.service';
 import { subscribeToPonedoras } from '../services/ponedoras.service';
+import { productosInventarioSimplificadoService } from '../services/productos-inventario-simplificado.service';
 import { LoteEngorde } from '../types/engorde/loteEngorde';
 import {
     Cliente,
@@ -78,11 +79,15 @@ export const useFacturacion = (): UseFacturacionReturn => {
     const unsubscribePonedoras = subscribeToPonedoras(setLotesPonedora);
     const unsubscribeLevantes = subscribeToLevantes(setLotesLevante);
     const unsubscribeEngorde = suscribirseALotesEngorde(setLotesEngorde);
+    const unsubscribeFacturas = suscribirseAFacturas(setFacturas);
+    const unsubscribeClientes = suscribirseAClientes(setClientes);
 
     return () => {
       unsubscribePonedoras();
       unsubscribeLevantes();
       unsubscribeEngorde();
+      unsubscribeFacturas();
+      unsubscribeClientes();
     };
   }, []);
 
@@ -97,20 +102,26 @@ export const useFacturacion = (): UseFacturacionReturn => {
         productosData,
         configuracionData,
       ] = await Promise.all([
-        facturacionService.getFacturas(),
-        facturacionService.getClientes(),
-        facturacionService.getProductosDisponibles(),
-        facturacionService.getConfiguracion(),
+        facturacionTransaccionalService.getFacturas(),
+        facturacionTransaccionalService.getClientes(),
+        productosInventarioSimplificadoService.generarProductosDesdeInventario(),
+        facturacionTransaccionalService.getConfiguracion(),
       ]);
 
       setFacturas(facturasData);
       setClientes(clientesData);
       setProductos(productosData);
       setConfiguracion(configuracionData);
+      
+      console.log('✅ Datos iniciales cargados:', {
+        facturas: facturasData.length,
+        clientes: clientesData.length,
+        productos: productosData.length,
+      });
     } catch (err) {
       const mensaje = err instanceof Error ? err.message : 'Error al cargar datos';
       setError(mensaje);
-      console.error('Error en cargarDatosIniciales:', err);
+      console.error('❌ Error en cargarDatosIniciales:', err);
     } finally {
       setLoading(false);
     }
@@ -122,7 +133,9 @@ export const useFacturacion = (): UseFacturacionReturn => {
       setLoading(true);
       setError(null);
 
-      const nuevaFactura = await facturacionService.crearFactura(datos, 'current-user');
+      const { requireAuth } = await import('../services/auth.service');
+      const userId = requireAuth();
+      const nuevaFactura = await facturacionTransaccionalService.crearFactura(datos, userId);
       setFacturas(prev => [nuevaFactura, ...prev]);
 
       // Actualizar productos disponibles después de la venta
@@ -147,13 +160,18 @@ export const useFacturacion = (): UseFacturacionReturn => {
       setLoading(true);
       setError(null);
 
-      const facturaActualizada = await facturacionService.actualizarFactura(id, datos);
-      
-      setFacturas(prev => 
-        prev.map(f => f.id === id ? facturaActualizada : f)
-      );
+      // Por ahora solo soportamos actualización de estado
+      if (datos.estado) {
+        const facturaActualizada = await facturacionTransaccionalService.actualizarEstadoFactura(id, datos.estado);
+        
+        setFacturas(prev => 
+          prev.map(f => f.id === id ? facturaActualizada : f)
+        );
 
-      return facturaActualizada;
+        return facturaActualizada;
+      } else {
+        throw new Error('Solo se puede actualizar el estado de la factura por ahora');
+      }
     } catch (err) {
       const mensaje = err instanceof Error ? err.message : 'Error al actualizar factura';
       setError(mensaje);
@@ -166,7 +184,7 @@ export const useFacturacion = (): UseFacturacionReturn => {
 
   const obtenerFactura = useCallback(async (id: string): Promise<Factura | null> => {
     try {
-      const factura = await facturacionService.getFacturaPorId(id);
+      const factura = await facturacionTransaccionalService.getFacturaPorId(id);
       return factura;
     } catch (err) {
       const mensaje = err instanceof Error ? err.message : 'Error al obtener factura';
@@ -181,7 +199,7 @@ export const useFacturacion = (): UseFacturacionReturn => {
       setLoading(true);
       setError(null);
 
-      const nuevoCliente = await facturacionService.crearCliente(datos);
+      const nuevoCliente = await facturacionTransaccionalService.crearCliente(datos);
       setClientes(prev => [...prev, nuevoCliente]);
 
       return nuevoCliente;
@@ -203,7 +221,7 @@ export const useFacturacion = (): UseFacturacionReturn => {
       setLoading(true);
       setError(null);
 
-      const clienteActualizado = await facturacionService.actualizarCliente(id, datos);
+      const clienteActualizado = await facturacionTransaccionalService.actualizarCliente(id, datos);
       
       setClientes(prev => 
         prev.map(c => c.id === id ? clienteActualizado : c)
@@ -224,7 +242,7 @@ export const useFacturacion = (): UseFacturacionReturn => {
   const actualizarProductos = useCallback(async (): Promise<void> => {
     try {
       // Generar productos desde el inventario actual
-      const nuevosProductos = await facturacionService.generarProductosDesdeInventario();
+      const nuevosProductos = await productosInventarioSimplificadoService.generarProductosDesdeInventario();
       setProductos(nuevosProductos);
     } catch (err) {
       const mensaje = err instanceof Error ? err.message : 'Error al actualizar productos';
@@ -242,7 +260,7 @@ export const useFacturacion = (): UseFacturacionReturn => {
       setLoading(true);
       setError(null);
 
-      const resumen = await facturacionService.generarResumenVentas(fechaInicio, fechaFin);
+      const resumen = await facturacionTransaccionalService.generarResumenVentas(fechaInicio, fechaFin);
       return resumen;
     } catch (err) {
       const mensaje = err instanceof Error ? err.message : 'Error al generar resumen';
@@ -261,8 +279,8 @@ export const useFacturacion = (): UseFacturacionReturn => {
       setLoading(true);
       setError(null);
 
-      await facturacionService.actualizarConfiguracion(config);
-      const nuevaConfiguracion = await facturacionService.getConfiguracion();
+      await facturacionTransaccionalService.actualizarConfiguracion(config);
+      const nuevaConfiguracion = await facturacionTransaccionalService.getConfiguracion();
       setConfiguracion(nuevaConfiguracion);
     } catch (err) {
       const mensaje = err instanceof Error ? err.message : 'Error al actualizar configuración';

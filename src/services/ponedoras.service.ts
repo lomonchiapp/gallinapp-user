@@ -243,10 +243,10 @@ export const obtenerLotesPonedoras = async (filtro?: FiltroLote): Promise<LotePo
 
     // Consulta básica con filtro de usuario
     const constraints = [where('createdBy', '==', userId)];
-    
+
     // Aplicar filtros adicionales si existen
     if (filtro?.status) {
-      constraints.push(where('status', '==', filtro.status));
+      constraints.push(where('estado', '==', filtro.status));
     }
     
     const q = query(
@@ -257,10 +257,12 @@ export const obtenerLotesPonedoras = async (filtro?: FiltroLote): Promise<LotePo
     
     const querySnapshot = await getDocs(q);
     
-    if (querySnapshot.empty) {
+        if (querySnapshot.empty) {
       console.log('No se encontraron lotes de ponedoras');
       return [];
     }
+
+    console.log('📋 Documentos encontrados en ponedoras:', querySnapshot.size);
     
     return querySnapshot.docs.map(doc => {
       const data = doc.data();

@@ -6,14 +6,14 @@ import { Ionicons } from '@expo/vector-icons';
 import { router, useLocalSearchParams } from 'expo-router';
 import React, { useEffect, useState } from 'react';
 import {
-  Alert,
-  Modal,
-  RefreshControl,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TouchableOpacity,
-  View
+    Alert,
+    Modal,
+    RefreshControl,
+    ScrollView,
+    StyleSheet,
+    Text,
+    TouchableOpacity,
+    View
 } from 'react-native';
 import Button from '../../../../src/components/ui/Button';
 import Card from '../../../../src/components/ui/Card';
@@ -24,8 +24,10 @@ import PerformanceReport from '../../../../src/components/ui/PerformanceReport';
 import { colors } from '../../../../src/constants/colors';
 import { useGalpones } from '../../../../src/hooks/useGalpones';
 import { usePerformanceMonitoring } from '../../../../src/hooks/usePerformanceMonitoring';
+import { useVentasLote } from '../../../../src/hooks/useVentasLote';
 import { exportarYCompartir } from '../../../../src/services/pdf-export.service';
 import { obtenerRegistrosPeso } from '../../../../src/services/peso.service';
+import { EstadisticasVentasLote, VentaLote } from '../../../../src/services/ventas.service';
 import { useGastosStore } from '../../../../src/stores/gastosStore';
 import { useLevantesStore } from '../../../../src/stores/levantesStore';
 import { useMortalityStore } from '../../../../src/stores/mortalityStore';
@@ -41,12 +43,14 @@ export default function DetallesLoteLevante() {
   const [menuVisible, setMenuVisible] = useState(false);
   const [registrosPeso, setRegistrosPeso] = useState<PesoRegistro[]>([]);
   const [exportingPDF, setExportingPDF] = useState(false);
+  // Hook para manejar ventas del lote
+  const { ventas: ventasLote, estadisticasVentas } = useVentasLote(id, TipoAve.POLLO_LEVANTE);
 
   const {
     loteActual,
     mortalidad,
     gastos,
-    ventas,
+    ventas: ventasStore,
     estadisticas,
     cargarLote,
     cargarMortalidad,
@@ -231,6 +235,7 @@ export default function DetallesLoteLevante() {
     { id: 'general', label: 'General', icon: 'information-circle-outline' },
     { id: 'peso', label: 'Peso', icon: 'scale-outline' },
     { id: 'gastos', label: 'Gastos', icon: 'receipt-outline' },
+    { id: 'ventas', label: 'Ventas', icon: 'cash-outline' },
     { id: 'mortalidad', label: 'Mortalidad', icon: 'warning-outline' },
     { id: 'rendimiento', label: 'Rendimiento', icon: 'analytics-outline' }
   ];
@@ -313,6 +318,8 @@ export default function DetallesLoteLevante() {
             galpones={galpones}
             comparaciones={comparaciones}
             loadingPerformance={loadingPerformance}
+            ventas={ventasLote}
+            estadisticasVentas={estadisticasVentas}
           />
         )}
 
@@ -328,6 +335,14 @@ export default function DetallesLoteLevante() {
             lote={loteActual}
             loteId={id}
             onRegistrarGasto={handleRegistrarGasto}
+          />
+        )}
+
+        {tabActivo === 'ventas' && (
+          <TabVentas
+            lote={loteActual}
+            ventas={ventasLote}
+            estadisticasVentas={estadisticasVentas}
           />
         )}
 
@@ -495,6 +510,8 @@ function TabGeneral({
   galpones,
   comparaciones,
   loadingPerformance,
+  ventas: ventasLote,
+  estadisticasVentas,
 }: {
   lote: LoteLevante;
   estadisticas: any;
@@ -506,6 +523,8 @@ function TabGeneral({
   galpones: Galpon[];
   comparaciones: any;
   loadingPerformance: boolean;
+  ventas: VentaLote[];
+  estadisticasVentas: EstadisticasVentasLote | null;
 }) {
   // Calcular muertes totales desde los registros reales (para mostrar estadísticas)
   const muertesTotales = registrosMortalidad
@@ -540,8 +559,8 @@ function TabGeneral({
             <Text style={styles.summaryLabel}>Tasa de Mortalidad</Text>
           </View>
           <View style={styles.summaryItem}>
-            <Text style={styles.summaryValue}>{muertesTotales}</Text>
-            <Text style={styles.summaryLabel}>Muertes Totales</Text>
+            <Text style={styles.summaryValue}>{estadisticasVentas?.cantidadVendida || 0}</Text>
+            <Text style={styles.summaryLabel}>Pollos Vendidos</Text>
           </View>
         </View>
       </Card>
@@ -601,15 +620,9 @@ function TabGeneral({
           <View style={styles.statsGrid}>
             <View style={styles.statItem}>
               <Text style={styles.statValue}>
-                {estadisticas.gananciaTotal ? `RD$${estadisticas.gananciaTotal.toFixed(2)}` : 'RD$0.00'}
+                {estadisticasVentas?.ingresosTotales ? `RD$${estadisticasVentas.ingresosTotales.toFixed(2)}` : 'RD$0.00'}
               </Text>
-              <Text style={styles.statLabel}>Ganancia Total</Text>
-            </View>
-            <View style={styles.statItem}>
-              <Text style={styles.statValue}>
-                {estadisticas.ingresoTotal ? `RD$${estadisticas.ingresoTotal.toFixed(2)}` : 'RD$0.00'}
-              </Text>
-              <Text style={styles.statLabel}>Ingresos Totales</Text>
+              <Text style={styles.statLabel}>Ingresos por Ventas</Text>
             </View>
             <View style={styles.statItem}>
               <Text style={styles.statValue}>
@@ -619,9 +632,16 @@ function TabGeneral({
             </View>
             <View style={styles.statItem}>
               <Text style={styles.statValue}>
-                {estadisticas.ventasTotales || 0}
+                {estadisticasVentas?.ingresosTotales && estadisticas.gastoTotal ? 
+                  `RD$${(estadisticasVentas.ingresosTotales - estadisticas.gastoTotal).toFixed(2)}` : 'RD$0.00'}
               </Text>
-              <Text style={styles.statLabel}>Ventas Registradas</Text>
+              <Text style={styles.statLabel}>Ganancia Neta</Text>
+            </View>
+            <View style={styles.statItem}>
+              <Text style={styles.statValue}>
+                {estadisticasVentas?.totalVentas || 0}
+              </Text>
+              <Text style={styles.statLabel}>Transacciones</Text>
             </View>
           </View>
         </Card>
@@ -838,11 +858,20 @@ function TabGastos({ lote, loteId, onRegistrarGasto }: { lote: LoteLevante; lote
     );
   }
 
-  // Calcular el total de gastos
-  const gastosAdicionales = gastos.reduce((total, gasto) => total + gasto.total, 0);
-  
   // Verificar si hay costo inicial del lote
   const costoInicialLote = lote.costo || 0;
+  
+  // Filtrar gastos para excluir el costo inicial del lote si está incluido
+  // Los gastos adicionales NO deben incluir el costo inicial del lote
+  const gastosAdicionalesFiltrados = gastos.filter(gasto => {
+    // Excluir gastos que sean el costo inicial del lote
+    // (por ejemplo, gastos con descripción "Costo inicial del lote" o similar)
+    return !(gasto.descripcion?.toLowerCase().includes('costo inicial') || 
+             gasto.articuloNombre?.toLowerCase().includes('costo inicial'));
+  });
+  
+  // Calcular el total de gastos adicionales (sin incluir costo inicial)
+  const gastosAdicionales = gastosAdicionalesFiltrados.reduce((total, gasto) => total + gasto.total, 0);
   
   // Calcular el total general (costo inicial + gastos adicionales)
   const totalGeneral = costoInicialLote + gastosAdicionales;
@@ -879,7 +908,7 @@ function TabGastos({ lote, loteId, onRegistrarGasto }: { lote: LoteLevante; lote
           <View style={styles.resumenRow}>
             <View style={styles.resumenLabelContainer}>
               <Ionicons name="receipt" size={16} color={colors.textMedium} />
-              <Text style={styles.resumenLabel}>Gastos adicionales ({gastos.length})</Text>
+              <Text style={styles.resumenLabel}>Gastos adicionales ({gastosAdicionalesFiltrados.length})</Text>
             </View>
             <Text style={styles.resumenValue}>RD${gastosAdicionales.toFixed(2)}</Text>
           </View>
@@ -912,7 +941,7 @@ function TabGastos({ lote, loteId, onRegistrarGasto }: { lote: LoteLevante; lote
         </Card>
       )}
 
-      {gastos.length === 0 ? (
+      {gastosAdicionalesFiltrados.length === 0 ? (
         <Card style={styles.emptyCard}>
           <Ionicons name="receipt-outline" size={48} color={colors.lightGray} />
           <Text style={styles.emptyTitle}>No hay gastos adicionales registrados</Text>
@@ -929,7 +958,7 @@ function TabGastos({ lote, loteId, onRegistrarGasto }: { lote: LoteLevante; lote
 
           {/* Lista de gastos */}
           <View style={styles.gastosList}>
-            {gastos.map((gasto) => (
+            {gastosAdicionalesFiltrados.map((gasto) => (
               <Card key={gasto.id} style={styles.gastoCard}>
                 <View style={styles.gastoHeader}>
                   <Text style={styles.gastoConcepto}>{gasto.articuloNombre}</Text>
@@ -944,6 +973,140 @@ function TabGastos({ lote, loteId, onRegistrarGasto }: { lote: LoteLevante; lote
               </Card>
             ))}
           </View>
+        </View>
+      )}
+    </View>
+  );
+}
+
+// Componente Tab Ventas
+function TabVentas({ 
+  lote, 
+  ventas,
+  estadisticasVentas 
+}: { 
+  lote: LoteLevante; 
+  ventas: VentaLote[];
+  estadisticasVentas: EstadisticasVentasLote | null;
+}) {
+  return (
+    <View style={styles.tabContent}>
+      <View style={styles.tabHeader}>
+        <Text style={styles.tabTitle}>Registro de Ventas</Text>
+        <Button
+          title="Nueva Factura"
+          onPress={() => router.push('/(tabs)/facturacion/nueva-factura')}
+          size="small"
+        />
+      </View>
+
+      {/* Resumen de ventas */}
+      {estadisticasVentas && (
+        <Card style={styles.ventasStatsCard}>
+          <Text style={styles.cardTitle}>Resumen de Ventas</Text>
+          <View style={styles.ventasStatsGrid}>
+            <View style={styles.ventasStatItem}>
+              <Text style={styles.ventasStatValue}>{estadisticasVentas.totalVentas}</Text>
+              <Text style={styles.ventasStatLabel}>Total Ventas</Text>
+            </View>
+            <View style={styles.ventasStatItem}>
+              <Text style={styles.ventasStatValue}>{estadisticasVentas.cantidadVendida}</Text>
+              <Text style={styles.ventasStatLabel}>Pollos Vendidos</Text>
+            </View>
+            <View style={styles.ventasStatItem}>
+              <Text style={styles.ventasStatValue}>
+                RD${estadisticasVentas.ingresosTotales.toFixed(2)}
+              </Text>
+              <Text style={styles.ventasStatLabel}>Ingresos Totales</Text>
+            </View>
+            <View style={styles.ventasStatItem}>
+              <Text style={styles.ventasStatValue}>
+                RD${estadisticasVentas.precioPromedio.toFixed(2)}
+              </Text>
+              <Text style={styles.ventasStatLabel}>Precio Promedio</Text>
+            </View>
+          </View>
+        </Card>
+      )}
+
+      {/* Estado del lote */}
+      <Card style={styles.estadoLoteCard}>
+        <Text style={styles.cardTitle}>Estado del Lote</Text>
+        <View style={styles.estadoLoteGrid}>
+          <View style={styles.estadoLoteItem}>
+            <Text style={styles.estadoLoteValue}>{lote.cantidadInicial}</Text>
+            <Text style={styles.estadoLoteLabel}>Pollos Iniciales</Text>
+          </View>
+          <View style={styles.estadoLoteItem}>
+            <Text style={styles.estadoLoteValue}>{estadisticasVentas?.cantidadVendida || 0}</Text>
+            <Text style={styles.estadoLoteLabel}>Pollos Vendidos</Text>
+          </View>
+          <View style={styles.estadoLoteItem}>
+            <Text style={styles.estadoLoteValue}>{lote.cantidadActual}</Text>
+            <Text style={styles.estadoLoteLabel}>Pollos Actuales</Text>
+          </View>
+          <View style={styles.estadoLoteItem}>
+            <Text style={styles.estadoLoteValue}>
+              {lote.cantidadInicial > 0 ? 
+                (((estadisticasVentas?.cantidadVendida || 0) / lote.cantidadInicial) * 100).toFixed(1) : 0}%
+            </Text>
+            <Text style={styles.estadoLoteLabel}>% Vendido</Text>
+          </View>
+        </View>
+      </Card>
+
+      {ventas.length === 0 ? (
+        <Card style={styles.emptyCard}>
+          <Ionicons name="cash-outline" size={48} color={colors.lightGray} />
+          <Text style={styles.emptyTitle}>No hay ventas registradas</Text>
+          <Text style={styles.emptyText}>
+            Las ventas se mostrarán aquí cuando se facturen productos de este lote
+          </Text>
+        </Card>
+      ) : (
+        <View style={styles.ventasList}>
+          {ventas.map((venta) => (
+            <Card key={venta.id} style={styles.ventaCard}>
+              <View style={styles.ventaHeader}>
+                <Text style={styles.ventaFecha}>
+                  {formatDate(venta.fecha)}
+                </Text>
+                <Text style={styles.ventaTotal}>
+                  RD${venta.total.toFixed(2)}
+                </Text>
+              </View>
+              
+              <View style={styles.ventaDetalle}>
+                <View style={styles.ventaRow}>
+                  <View style={styles.ventaItem}>
+                    <Text style={styles.ventaLabel}>Cliente</Text>
+                    <Text style={styles.ventaValue}>{venta.cliente.nombre}</Text>
+                  </View>
+                  <View style={styles.ventaItem}>
+                    <Text style={styles.ventaLabel}>Cantidad</Text>
+                    <Text style={styles.ventaValue}>{venta.cantidad} pollos</Text>
+                  </View>
+                </View>
+                
+                <View style={styles.ventaRow}>
+                  <View style={styles.ventaItem}>
+                    <Text style={styles.ventaLabel}>Precio unitario</Text>
+                    <Text style={styles.ventaValue}>RD${venta.precioUnitario.toFixed(2)}</Text>
+                  </View>
+                  <View style={styles.ventaItem}>
+                    <Text style={styles.ventaLabel}>Producto</Text>
+                    <Text style={styles.ventaValue}>{venta.producto.nombre}</Text>
+                  </View>
+                </View>
+              </View>
+
+              <View style={styles.ventaFactura}>
+                <Text style={styles.ventaFacturaText}>
+                  Factura: {venta.facturaId}
+                </Text>
+              </View>
+            </Card>
+          ))}
         </View>
       )}
     </View>
@@ -1822,5 +1985,111 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: 'bold',
     color: colors.textDark,
+  },
+  // Estilos para TabVentas
+  ventasStatsCard: {
+    marginBottom: 16,
+    backgroundColor: colors.success + '05',
+    borderColor: colors.success + '20',
+    borderWidth: 1,
+  },
+  ventasStatsGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'space-between',
+  },
+  ventasStatItem: {
+    width: '48%',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  ventasStatValue: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: colors.success,
+  },
+  ventasStatLabel: {
+    fontSize: 12,
+    color: colors.textMedium,
+    marginTop: 2,
+    textAlign: 'center',
+  },
+  estadoLoteCard: {
+    marginBottom: 16,
+  },
+  estadoLoteGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'space-between',
+  },
+  estadoLoteItem: {
+    width: '48%',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  estadoLoteValue: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: colors.primary,
+  },
+  estadoLoteLabel: {
+    fontSize: 12,
+    color: colors.textMedium,
+    marginTop: 4,
+    textAlign: 'center',
+  },
+  ventasList: {
+    gap: 12,
+  },
+  ventaCard: {
+    padding: 16,
+  },
+  ventaHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  ventaFecha: {
+    fontSize: 14,
+    color: colors.textMedium,
+  },
+  ventaTotal: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: colors.success,
+  },
+  ventaDetalle: {
+    marginBottom: 12,
+  },
+  ventaRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 8,
+  },
+  ventaItem: {
+    flex: 1,
+    marginHorizontal: 4,
+  },
+  ventaLabel: {
+    fontSize: 12,
+    color: colors.textMedium,
+    fontWeight: '500',
+  },
+  ventaValue: {
+    fontSize: 14,
+    color: colors.textDark,
+    fontWeight: '600',
+    marginTop: 2,
+  },
+  ventaFactura: {
+    paddingTop: 8,
+    borderTopWidth: 1,
+    borderTopColor: colors.veryLightGray,
+  },
+  ventaFacturaText: {
+    fontSize: 12,
+    color: colors.textMedium,
+    fontStyle: 'italic',
   },
 });

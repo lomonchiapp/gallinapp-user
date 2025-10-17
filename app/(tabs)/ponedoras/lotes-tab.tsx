@@ -6,7 +6,7 @@ import { EstadoLote, TipoAve } from '@/src/types/enums';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import React, { useEffect, useMemo, useState } from 'react';
-import { Modal, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { Modal, RefreshControl, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import Button from '../../../src/components/ui/Button';
 import Card from '../../../src/components/ui/Card';
 import CostUnitarioBadge from '../../../src/components/ui/CostUnitarioBadge';
@@ -17,6 +17,7 @@ import { useGastosSubscription } from '../../../src/hooks/useGastosSubscription'
 import { EggTrackingInfo, getEggTrackingInfoFromStore } from '../../../src/services/tracking-optimized.service';
 import { useArticulosStore } from '../../../src/stores/articulosStore';
 import { useHuevosStore } from '../../../src/stores/huevosStore';
+import { useMortalityStore } from '../../../src/stores/mortalityStore';
 import { usePonedorasStore } from '../../../src/stores/ponedorasStore';
 import { formatDate } from '../../../src/utils/dateUtils';
 
@@ -52,8 +53,13 @@ export default function LotesTab() {
   const { lotes, isLoading, estadisticasLotes, cargarLotes, cargarEstadisticasLotes, suscribirseAPonedoras } = usePonedorasStore();
   const { articulos, loadArticulos } = useArticulosStore();
   const { registrosHuevos, loadAllRegistros } = useHuevosStore();
+  const { suscribirseAMortalidadPorTipo, getRegistrosPorTipo } = useMortalityStore();
+  const registrosMortalidad = getRegistrosPorTipo(TipoAve.PONEDORA);
   const { gastos, estadisticasGastos } = useGastosSubscription(TipoAve.PONEDORA);
   const { galpones, cargarGalpones } = useGalpones();
+
+  // Estado para pull-to-refresh
+  const [refreshing, setRefreshing] = useState(false);
   
   // Calcular costos unitarios cuando cambien los lotes
   useEffect(() => {
@@ -61,35 +67,60 @@ export default function LotesTab() {
       const calcularCostos = async () => {
         const costos: {[loteId: string]: {costoUnitario: number, isLoading: boolean}} = {};
 
-        // Inicializar todos los lotes como cargando
+        // NO inicializar como cargando - mantener valores previos o mostrar 0
+        // Si ya existe un costo, mantenerlo mientras recalculamos
         lotes.forEach(lote => {
-          costos[lote.id] = { costoUnitario: 0, isLoading: true };
+          const costoExistente = costosUnitarios[lote.id];
+          costos[lote.id] = costoExistente || { costoUnitario: 0, isLoading: false };
         });
         setCostosUnitarios(costos);
 
-        // Calcular costo para cada lote
+        // Calcular costo para cada lote en segundo plano
         for (const lote of lotes) {
           try {
             // Importar el servicio directamente
-            const { calcularCostoProduccionUnitario } = await import('../../../src/services/gastos.service');
-            const gastosAdicionales = await calcularCostoProduccionUnitario(lote.id, TipoAve.PONEDORA);
+            const { obtenerGastos } = await import('../../../src/services/gastos.service');
+            const gastosLote = await obtenerGastos(lote.id, TipoAve.PONEDORA);
+            
+            // Filtrar gastos para excluir el costo inicial del lote si está incluido
+            const gastosAdicionalesFiltrados = gastosLote.filter(gasto => {
+              // Excluir gastos que sean el costo inicial del lote
+              return !(gasto.descripcion?.toLowerCase().includes('costo inicial') || 
+                       gasto.articuloNombre?.toLowerCase().includes('costo inicial'));
+            });
+            
+            // Calcular gastos adicionales (sin incluir costo inicial)
+            const gastosAdicionales = gastosAdicionalesFiltrados.reduce((total, gasto) => total + gasto.total, 0);
             
             // Sumar el costo inicial del lote + gastos adicionales
             const costoInicial = lote.costo || 0;
             const costoTotal = costoInicial + gastosAdicionales;
             const costoUnitario = lote.cantidadActual > 0 ? costoTotal / lote.cantidadActual : 0;
             
-            costos[lote.id] = {
-              costoUnitario,
-              isLoading: false
-            };
+            console.log(`💰 Lote ${lote.id} (${lote.nombre}):`, {
+              costoInicial,
+              gastosAdicionales,
+              costoTotal,
+              cantidadActual: lote.cantidadActual,
+              costoUnitario
+            });
+            
+            // Actualizar solo este lote específico
+            setCostosUnitarios(prev => ({
+              ...prev,
+              [lote.id]: {
+                costoUnitario,
+                isLoading: false
+              }
+            }));
           } catch (error) {
             console.error(`Error calculando costo para lote ${lote.id}:`, error);
-            costos[lote.id] = { costoUnitario: 0, isLoading: false };
+            setCostosUnitarios(prev => ({
+              ...prev,
+              [lote.id]: { costoUnitario: 0, isLoading: false }
+            }));
           }
         }
-
-        setCostosUnitarios(costos);
       };
 
       calcularCostos();
@@ -99,18 +130,20 @@ export default function LotesTab() {
   // Debug: Log del estado inicial
   console.log('🔍 Estado inicial:', { busqueda, ordenamiento, ordenDescendente, lotesCount: lotes.length });
   
-  // Cargar lotes y artículos al montar el componente
+  // Cargar lotes, artículos y suscribirse a cambios en tiempo real
   useEffect(() => {
-    console.log('🐔 Ponedoras: Suscribiéndose a lotes, artículos y registros de huevos...');
+    console.log('🐔 Ponedoras: Suscribiéndose a lotes, mortalidad, artículos y registros de huevos...');
     const unsubscribeLotes = suscribirseAPonedoras();
+    const unsubscribeMortalidad = suscribirseAMortalidadPorTipo(TipoAve.PONEDORA);
     loadArticulos();
     loadAllRegistros();
     cargarGalpones();
 
     return () => {
       unsubscribeLotes();
+      unsubscribeMortalidad();
     };
-  }, [suscribirseAPonedoras, loadArticulos, loadAllRegistros, cargarGalpones]);
+  }, [suscribirseAPonedoras, suscribirseAMortalidadPorTipo, loadArticulos, loadAllRegistros, cargarGalpones]);
 
   // Cargar estadísticas cuando los lotes estén disponibles
   useEffect(() => {
@@ -239,8 +272,76 @@ export default function LotesTab() {
     return eggTracking.find(e => e.loteId === loteId);
   };
 
+  // Función para refrescar datos
+  const onRefresh = async () => {
+    setRefreshing(true);
+    try {
+      console.log('🔄 Refrescando datos de ponedoras...');
+      await cargarLotes();
+      await cargarEstadisticasLotes();
+      await loadArticulos();
+      await loadAllRegistros();
+      await cargarGalpones();
+    } catch (error) {
+      console.error('Error al refrescar datos:', error);
+    } finally {
+      setRefreshing(false);
+    }
+  };
+
+  // Estado de carga inicial
+  const isInitialLoading = isLoading || lotes.length === 0;
+
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.contentContainer}>
+    <ScrollView 
+      style={styles.container} 
+      contentContainerStyle={styles.contentContainer}
+      refreshControl={
+        <RefreshControl
+          refreshing={refreshing}
+          onRefresh={onRefresh}
+          tintColor={colors.ponedoras}
+          colors={[colors.ponedoras]}
+        />
+      }
+    >
+      {isInitialLoading ? (
+        /* Loading Skeleton */
+        <View style={styles.loadingContainer}>
+          <View style={styles.loadingHeader}>
+            <View style={[styles.skeleton, styles.skeletonButton]} />
+            <View style={[styles.skeleton, styles.skeletonButton]} />
+          </View>
+          <View style={[styles.skeleton, styles.skeletonSearch]} />
+          <View style={[styles.skeleton, styles.skeletonSort]} />
+          {[1, 2, 3].map((item) => (
+            <View key={item} style={styles.skeletonCard}>
+              <View style={styles.skeletonCardHeader}>
+                <View style={styles.skeletonCardInfo}>
+                  <View style={[styles.skeleton, styles.skeletonTitle]} />
+                  <View style={[styles.skeleton, styles.skeletonSubtitle]} />
+                  <View style={[styles.skeleton, styles.skeletonBadge]} />
+                </View>
+                <View style={[styles.skeleton, styles.skeletonStatus]} />
+              </View>
+              <View style={styles.skeletonCardStats}>
+                {[1, 2, 3].map((stat) => (
+                  <View key={stat} style={styles.skeletonStat}>
+                    <View style={[styles.skeleton, styles.skeletonStatValue]} />
+                    <View style={[styles.skeleton, styles.skeletonStatLabel]} />
+                  </View>
+                ))}
+              </View>
+              <View style={styles.skeletonCardActions}>
+                {[1, 2, 3, 4].map((action) => (
+                  <View key={action} style={[styles.skeleton, styles.skeletonActionButton]} />
+                ))}
+              </View>
+            </View>
+          ))}
+        </View>
+      ) : (
+        <>
       <View style={styles.header}>
         <Button
           title="Dashboard"
@@ -423,16 +524,15 @@ export default function LotesTab() {
                         <Text style={StyleSheet.flatten([styles.locationText, { color: badgeColors.badgeText }])}>{badgeLabel}</Text>
                       </View>
                     )}
-                    {!loadingCosto && (
-                      <CostUnitarioBadge
-                        costoTotal={costoUnitario * lote.cantidadActual}
-                        cantidadActual={lote.cantidadActual}
-                        loteId={lote.id}
-                        tipoLote="PONEDORA"
-                        size="small"
-                        style={styles.costBadge}
-                      />
-                    )}
+                    {/* Siempre mostrar el CPU, nunca ocultarlo */}
+                    <CostUnitarioBadge
+                      costoTotal={costoUnitario * lote.cantidadActual}
+                      cantidadActual={lote.cantidadActual}
+                      loteId={lote.id}
+                      tipoLote="PONEDORA"
+                      size="small"
+                      style={styles.costBadge}
+                    />
                     {/* Indicador de recolección de huevos */}
                     {eggInfo && (
                       <View style={styles.eggIndicatorContainer}>
@@ -553,6 +653,8 @@ export default function LotesTab() {
             precio: a.precio 
           }))}
         />
+      )}
+      </>
       )}
     </ScrollView>
   );
@@ -842,6 +944,98 @@ const styles = StyleSheet.create({
     fontSize: 12,
     marginLeft: 4,
     fontWeight: '500',
+  },
+  // Loading Skeleton Styles
+  loadingContainer: {
+    flex: 1,
+  },
+  loadingHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  skeleton: {
+    backgroundColor: colors.veryLightGray,
+    borderRadius: 8,
+  },
+  skeletonButton: {
+    width: 120,
+    height: 36,
+  },
+  skeletonSearch: {
+    width: '100%',
+    height: 48,
+    marginBottom: 12,
+  },
+  skeletonSort: {
+    width: '100%',
+    height: 44,
+    marginBottom: 16,
+  },
+  skeletonCard: {
+    backgroundColor: colors.white,
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  skeletonCardHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 16,
+  },
+  skeletonCardInfo: {
+    flex: 1,
+  },
+  skeletonTitle: {
+    width: '60%',
+    height: 20,
+    marginBottom: 8,
+  },
+  skeletonSubtitle: {
+    width: '40%',
+    height: 16,
+    marginBottom: 8,
+  },
+  skeletonBadge: {
+    width: 100,
+    height: 24,
+  },
+  skeletonStatus: {
+    width: 80,
+    height: 32,
+  },
+  skeletonCardStats: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 16,
+  },
+  skeletonStat: {
+    alignItems: 'center',
+  },
+  skeletonStatValue: {
+    width: 60,
+    height: 20,
+    marginBottom: 4,
+  },
+  skeletonStatLabel: {
+    width: 80,
+    height: 14,
+  },
+  skeletonCardActions: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  skeletonActionButton: {
+    width: 80,
+    height: 32,
   },
 });
 

@@ -17,6 +17,7 @@ import {
 } from 'react-native';
 import Button from '../../../../src/components/ui/Button';
 import Card from '../../../../src/components/ui/Card';
+import CostoProduccionHuevos from '../../../../src/components/ui/CostoProduccionHuevos';
 import GastoSheet from '../../../../src/components/ui/GastoSheet';
 import { colors } from '../../../../src/constants/colors';
 import { useGalpones } from '../../../../src/hooks/useGalpones';
@@ -193,6 +194,7 @@ export default function DetallesLotePonedora() {
   const tabs = [
     { id: 'general', label: 'General', icon: 'information-circle-outline' },
     { id: 'produccion', label: 'Producción', icon: 'egg-outline' },
+    { id: 'costos', label: 'Costos', icon: 'calculator-outline' },
     { id: 'gastos', label: 'Gastos', icon: 'receipt-outline' },
     { id: 'mortalidad', label: 'Mortalidad', icon: 'warning-outline' },
     { id: 'dashboard', label: 'Dashboard', icon: 'analytics-outline' }
@@ -305,6 +307,12 @@ export default function DetallesLotePonedora() {
                 registros={registrosHuevos}
                 ventas={ventasHuevos}
                 onRegistrarProduccion={handleRegistrarProduccion}
+              />
+            )}
+
+            {tabActivo === 'costos' && loteActual && (
+              <TabCostosProduccion
+                lote={loteActual}
               />
             )}
 
@@ -505,6 +513,14 @@ function TabGeneral({
         )}
       </Card>
 
+      {/* Costos de producción de huevos */}
+      <CostoProduccionHuevos
+        loteId={lote.id}
+        nombreLote={lote.nombre}
+        showDetailed={false}
+        onNavigateToDetails={() => router.push(`/(tabs)/ponedoras/dashboard-costos-huevos?loteId=${lote.id}`)}
+      />
+
       {/* Estadísticas adicionales */}
       {estadisticas && (
         <Card style={styles.statsCard}>
@@ -621,11 +637,20 @@ function TabProduccion({
 
 // Componente Tab Gastos
 function TabGastos({ lote, gastos, onRegistrarGasto }: { lote: LotePonedora; gastos: any[]; onRegistrarGasto: () => void }) {
-  // Calcular el total de gastos
-  const gastosAdicionales = gastos.reduce((total, gasto) => total + gasto.total, 0);
-  
   // Verificar si hay costo inicial del lote
   const costoInicialLote = lote.costo || 0;
+  
+  // Filtrar gastos para excluir el costo inicial del lote si está incluido
+  // Los gastos adicionales NO deben incluir el costo inicial del lote
+  const gastosAdicionalesFiltrados = gastos.filter(gasto => {
+    // Excluir gastos que sean el costo inicial del lote
+    // (por ejemplo, gastos con descripción "Costo inicial del lote" o similar)
+    return !(gasto.descripcion?.toLowerCase().includes('costo inicial') || 
+             gasto.articuloNombre?.toLowerCase().includes('costo inicial'));
+  });
+  
+  // Calcular el total de gastos adicionales (sin incluir costo inicial)
+  const gastosAdicionales = gastosAdicionalesFiltrados.reduce((total, gasto) => total + gasto.total, 0);
   
   // Calcular el total general (costo inicial + gastos adicionales)
   const totalGeneral = costoInicialLote + gastosAdicionales;
@@ -662,7 +687,7 @@ function TabGastos({ lote, gastos, onRegistrarGasto }: { lote: LotePonedora; gas
           <View style={styles.resumenRow}>
             <View style={styles.resumenLabelContainer}>
               <Ionicons name="receipt" size={16} color={colors.textMedium} />
-              <Text style={styles.resumenLabel}>Gastos adicionales ({gastos.length})</Text>
+              <Text style={styles.resumenLabel}>Gastos adicionales ({gastosAdicionalesFiltrados.length})</Text>
             </View>
             <Text style={styles.resumenValue}>RD${gastosAdicionales.toFixed(2)}</Text>
           </View>
@@ -695,7 +720,7 @@ function TabGastos({ lote, gastos, onRegistrarGasto }: { lote: LotePonedora; gas
         </Card>
       )}
 
-      {gastos.length === 0 ? (
+      {gastosAdicionalesFiltrados.length === 0 ? (
         <Card style={styles.emptyCard}>
           <Ionicons name="receipt-outline" size={48} color={colors.lightGray} />
           <Text style={styles.emptyTitle}>No hay gastos adicionales registrados</Text>
@@ -712,7 +737,7 @@ function TabGastos({ lote, gastos, onRegistrarGasto }: { lote: LotePonedora; gas
 
           {/* Lista de gastos */}
           <View style={styles.gastosList}>
-            {gastos.map((gasto) => (
+            {gastosAdicionalesFiltrados.map((gasto) => (
               <Card key={gasto.id} style={styles.gastoCard}>
                 <View style={styles.gastoHeader}>
                   <Text style={styles.gastoConcepto}>{gasto.articuloNombre}</Text>
@@ -805,6 +830,82 @@ function TabMortalidad({
           ))}
         </View>
       )}
+    </View>
+  );
+}
+
+// Componente Tab Costos de Producción
+function TabCostosProduccion({ lote }: { lote: LotePonedora }) {
+  return (
+    <View style={styles.tabContent}>
+      <View style={styles.tabHeader}>
+        <Text style={styles.tabTitle}>Análisis de Costos de Producción</Text>
+        <Button
+          title="Dashboard Completo"
+          onPress={() => router.push(`/(tabs)/ponedoras/dashboard-costos-huevos?loteId=${lote.id}`)}
+          size="small"
+        />
+      </View>
+
+      {/* Componente principal de costos detallado */}
+      <CostoProduccionHuevos
+        loteId={lote.id}
+        nombreLote={lote.nombre}
+        showDetailed={true}
+        onNavigateToDetails={() => router.push(`/(tabs)/ponedoras/dashboard-costos-huevos?loteId=${lote.id}`)}
+      />
+
+      {/* Información sobre el análisis */}
+      <Card style={styles.costoInfoCard}>
+        <View style={styles.costoInfoHeader}>
+          <Ionicons name="information-circle-outline" size={24} color={colors.primary} />
+          <Text style={styles.costoInfoTitle}>Análisis de Dos Fases</Text>
+        </View>
+        <Text style={styles.costoInfoDescription}>
+          El cálculo de costos se divide en dos fases principales:
+        </Text>
+        <View style={styles.costoInfoList}>
+          <View style={styles.costoInfoItem}>
+            <Ionicons name="heart-outline" size={16} color="#e74c3c" />
+            <Text style={styles.costoInfoItemText}>
+              <Text style={styles.costoInfoItemTitle}>Fase Inicial:</Text> Desde nacimiento hasta inicio de postura
+            </Text>
+          </View>
+          <View style={styles.costoInfoItem}>
+            <Ionicons name="egg-outline" size={16} color="#f39c12" />
+            <Text style={styles.costoInfoItemText}>
+              <Text style={styles.costoInfoItemTitle}>Fase Productiva:</Text> Gastos diarios ÷ huevos producidos
+            </Text>
+          </View>
+        </View>
+        <View style={styles.costoFormulaContainer}>
+          <Text style={styles.costoFormulaTitle}>Fórmula del día:</Text>
+          <Text style={styles.costoFormula}>
+            Costo por huevo = Gastos del día ÷ Huevos producidos
+          </Text>
+          <Text style={styles.costoExample}>
+            Ejemplo: $12,000 (alimento) ÷ 4,500 huevos = $2.67 por huevo
+          </Text>
+        </View>
+      </Card>
+
+      {/* Botón para acceder al dashboard completo */}
+      <Card style={styles.dashboardAccessCard}>
+        <View style={styles.dashboardAccessHeader}>
+          <Ionicons name="analytics-outline" size={32} color={colors.primary} />
+          <View style={styles.dashboardAccessText}>
+            <Text style={styles.dashboardAccessTitle}>Dashboard Avanzado</Text>
+            <Text style={styles.dashboardAccessDescription}>
+              Accede al análisis completo con gráficos, tendencias y alertas personalizadas
+            </Text>
+          </View>
+        </View>
+        <Button
+          title="Abrir Dashboard de Costos"
+          onPress={() => router.push(`/(tabs)/ponedoras/dashboard-costos-huevos?loteId=${lote.id}`)}
+          style={styles.dashboardAccessButton}
+        />
+      </Card>
     </View>
   );
 }
@@ -1427,5 +1528,96 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: 'bold',
     color: colors.textDark,
+  },
+  // Estilos para el tab de costos de producción
+  costoInfoCard: {
+    marginTop: 16,
+    marginBottom: 16,
+  },
+  costoInfoHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  costoInfoTitle: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: colors.textDark,
+    marginLeft: 8,
+  },
+  costoInfoDescription: {
+    fontSize: 14,
+    color: colors.textMedium,
+    marginBottom: 16,
+    lineHeight: 20,
+  },
+  costoInfoList: {
+    marginBottom: 16,
+  },
+  costoInfoItem: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    marginBottom: 12,
+  },
+  costoInfoItemText: {
+    flex: 1,
+    marginLeft: 8,
+    fontSize: 14,
+    color: colors.textMedium,
+    lineHeight: 20,
+  },
+  costoInfoItemTitle: {
+    fontWeight: 'bold',
+    color: colors.textDark,
+  },
+  costoFormulaContainer: {
+    backgroundColor: colors.veryLightGray + '80',
+    borderRadius: 8,
+    padding: 12,
+    borderLeftWidth: 3,
+    borderLeftColor: colors.primary,
+  },
+  costoFormulaTitle: {
+    fontSize: 14,
+    fontWeight: 'bold',
+    color: colors.textDark,
+    marginBottom: 6,
+  },
+  costoFormula: {
+    fontSize: 14,
+    color: colors.primary,
+    fontWeight: '600',
+    marginBottom: 4,
+  },
+  costoExample: {
+    fontSize: 13,
+    color: colors.textMedium,
+    fontStyle: 'italic',
+  },
+  dashboardAccessCard: {
+    marginTop: 16,
+  },
+  dashboardAccessHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  dashboardAccessText: {
+    flex: 1,
+    marginLeft: 12,
+  },
+  dashboardAccessTitle: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: colors.textDark,
+    marginBottom: 4,
+  },
+  dashboardAccessDescription: {
+    fontSize: 14,
+    color: colors.textMedium,
+    lineHeight: 20,
+  },
+  dashboardAccessButton: {
+    marginTop: 4,
   },
 });

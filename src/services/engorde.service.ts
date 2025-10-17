@@ -115,7 +115,7 @@ export const obtenerLotesEngorde = async (): Promise<LoteEngorde[]> => {
 
         const q = query(
             collection(db, LOTES_COLLECTION),
-            where('userId', '==', userId),
+            where('createdBy', '==', userId),
             orderBy('fechaInicio', 'desc')
         );
         
@@ -125,6 +125,8 @@ export const obtenerLotesEngorde = async (): Promise<LoteEngorde[]> => {
             console.log('No se encontraron lotes de engorde');
             return [];
         }
+
+        console.log('📋 Documentos encontrados en engorde:', querySnapshot.size);
         
         return querySnapshot.docs.map(doc => {
             const data = doc.data();
@@ -226,7 +228,7 @@ export const suscribirseALotesEngorde = (callback: (lotes: LoteEngorde[]) => voi
 
     const q = query(
       collection(db, LOTES_COLLECTION),
-      where('userId', '==', userId),
+      where('createdBy', '==', userId),
       orderBy('fechaInicio', 'desc')
     );
 

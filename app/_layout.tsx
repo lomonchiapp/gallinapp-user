@@ -14,6 +14,8 @@ import CustomDrawerContent from './_drawer';
 function RootLayout() {
   const colorScheme = useColorScheme();
 
+  
+
   return (
     <ThemeProvider value={colorScheme === 'dark' ? 'dark' : 'light'}>
       <StatusBar style={colorScheme === 'dark' ? 'light' : 'dark'} />

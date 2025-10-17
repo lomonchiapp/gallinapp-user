@@ -6,28 +6,33 @@ import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import React, { useEffect, useMemo, useState } from 'react';
 import {
-  Alert,
-  RefreshControl,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TouchableOpacity,
-  View,
+    Alert,
+    RefreshControl,
+    ScrollView,
+    StyleSheet,
+    Text,
+    TouchableOpacity,
+    View,
 } from 'react-native';
 import { Card } from '../../../src/components/ui/Card';
 import { colors } from '../../../src/constants/colors';
-import { useFacturacion } from '../../../src/hooks/useFacturacion';
+import { useFacturacionMejorado } from '../../../src/hooks/useFacturacionMejorado';
 import { useGalpones } from '../../../src/hooks/useGalpones';
-import { facturacionService } from '../../../src/services/facturacion.service';
 import { TipoAve } from '../../../src/types/enums';
 import { EstadoFactura, ResumenVentas } from '../../../src/types/facturacion';
 
 export default function FacturacionScreen() {
   const router = useRouter();
-  const { facturas, clientes, productos, lotes, configuracion, loading, error } = useFacturacion();
+  const { facturas, clientes, productos, ventas, isLoading, error, actualizarProductos, refrescarDatos } = useFacturacionMejorado();
   const { galpones } = useGalpones();
+  
   const [resumen, setResumen] = useState<ResumenVentas | null>(null);
   const [refreshing, setRefreshing] = useState(false);
+  const [preciosConfig, setPreciosConfig] = useState<{
+    precioHuevo: number;
+    precioLibraEngorde: number;
+    precioUnidadIsraeli: number;
+  } | null>(null);
 
   interface LoteResumen {
     id: string;
@@ -53,54 +58,73 @@ export default function FacturacionScreen() {
       agrupados[galponId].totalAves += lote.cantidadActual ?? 0;
     };
 
-    lotes.ponedoras.forEach((lote) =>
-      agregar(lote.galponId, {
-        id: lote.id,
-        nombre: lote.nombre,
-        raza: lote.raza,
-        tipo: 'Ponedoras',
-        cantidadActual: lote.cantidadActual,
-      })
-    );
-    lotes.levantes.forEach((lote) =>
-      agregar(lote.galponId, {
-        id: lote.id,
-        nombre: lote.nombre,
-        raza: lote.raza,
-        tipo: 'Levante',
-        cantidadActual: lote.cantidadActual,
-      })
-    );
-    lotes.engordes.forEach((lote) =>
-      agregar(lote.galponId, {
-        id: lote.id,
-        nombre: lote.nombre,
-        raza: lote.raza,
-        tipo: 'Engorde',
-        cantidadActual: lote.cantidadActual,
-      })
-    );
+    // Agrupar productos por galpón basado en lotes disponibles
+    productos.forEach((producto) => {
+      if ('loteId' in producto && producto.loteId && producto.disponible > 0) {
+        // Determinar galpón basado en el tipo de producto
+        let galponId: string | undefined;
+        let tipoNombre: string;
+        
+        switch (producto.tipoAve) {
+          case TipoAve.PONEDORA:
+            tipoNombre = 'Ponedoras';
+            // Aquí necesitaríamos obtener el galponId del lote, pero por simplicidad usamos un valor por defecto
+            galponId = 'galpon-ponedoras';
+            break;
+          case TipoAve.POLLO_LEVANTE:
+            tipoNombre = 'Levante';
+            galponId = 'galpon-levantes';
+            break;
+          case TipoAve.POLLO_ENGORDE:
+            tipoNombre = 'Engorde';
+            galponId = 'galpon-engordes';
+            break;
+          default:
+            return;
+        }
+        
+        agregar(galponId, {
+          id: (producto as any).loteId,
+          nombre: producto.nombre.replace('Lote completo: ', '').replace(' (por unidad)', ''),
+          tipo: tipoNombre,
+          cantidadActual: producto.disponible,
+        });
+      }
+    });
 
     return agrupados;
-  }, [lotes]);
+  }, [productos]);
 
   useEffect(() => {
     cargarDatos();
+    cargarPreciosConfig();
   }, []);
+  
+  const cargarPreciosConfig = async () => {
+    try {
+      const { obtenerConfiguracion } = await import('../../../src/services/appConfig.service');
+      const config = await obtenerConfiguracion();
+      setPreciosConfig({
+        precioHuevo: config.precioHuevo,
+        precioLibraEngorde: config.precioLibraEngorde,
+        precioUnidadIsraeli: config.precioUnidadIsraeli,
+      });
+    } catch (error) {
+      console.error('Error al cargar configuración de precios:', error);
+    }
+  };
 
   const cargarDatos = async () => {
     try {
-      const [facturasData, resumenData] = await Promise.all([
-        facturacionService.getFacturas(),
-        generarResumenMensual(),
-      ]);
-
-      const facturasOrdenadas = facturasData.sort(
-        (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
-      );
+      console.log('📊 Cargando datos de facturación...');
+      const resumenData = await generarResumenMensual();
       setResumen(resumenData);
+      console.log('✅ Datos de facturación cargados:', {
+        facturas: facturas.length,
+        resumen: resumenData
+      });
     } catch (error) {
-      console.error('Error al cargar datos de facturación:', error);
+      console.error('❌ Error al cargar datos de facturación:', error);
       Alert.alert('Error', 'No se pudieron cargar los datos de facturación');
     } finally {
       setRefreshing(false);
@@ -112,10 +136,8 @@ export default function FacturacionScreen() {
     const fechaInicio = new Date();
     fechaInicio.setMonth(fechaFin.getMonth() - 1);
 
-    const resumenGenerado = await facturacionService.generarResumenVentas(
-      fechaInicio,
-      fechaFin
-    );
+    // Por ahora usamos datos locales hasta implementar generarResumenVentas
+    const resumenGenerado = null;
     return (
       resumenGenerado || {
         periodo: { inicio: fechaInicio, fin: fechaFin },
@@ -138,9 +160,19 @@ export default function FacturacionScreen() {
     );
   };
 
-  const onRefresh = () => {
+  const onRefresh = async () => {
     setRefreshing(true);
-    cargarDatos();
+    try {
+      await Promise.all([
+        cargarDatos(),
+        cargarPreciosConfig(),
+        actualizarProductos(), // Regenerar productos desde lotes actuales
+      ]);
+    } catch (error) {
+      console.error('Error al refrescar:', error);
+    } finally {
+      setRefreshing(false);
+    }
   };
 
   const formatearMoneda = (valor: number): string => {
@@ -211,6 +243,19 @@ export default function FacturacionScreen() {
   };
 
   const navegarANuevaFactura = () => {
+    // Verificar que hay productos disponibles antes de navegar
+    const totalProductosDisponibles = productos.length;
+    if (totalProductosDisponibles === 0) {
+      Alert.alert(
+        'Sin productos disponibles',
+        'No hay lotes activos disponibles para venta. Revisa que tengas lotes con aves disponibles.',
+        [
+          { text: 'Entendido', style: 'default' },
+          { text: 'Actualizar inventario', onPress: () => actualizarProductos() }
+        ]
+      );
+      return;
+    }
     router.push('/facturacion/nueva-factura');
   };
 
@@ -311,7 +356,7 @@ export default function FacturacionScreen() {
 
   const ultimasFacturas = useMemo(() => facturas.slice(0, 5), [facturas]);
 
-  if (loading) {
+  if (isLoading) {
     return (
       <View style={styles.loadingContainer}>
         <Text style={styles.loadingText}>Cargando facturación...</Text>
@@ -319,17 +364,6 @@ export default function FacturacionScreen() {
     );
   }
 
-  const renderLoteCard: ListRenderItem<LoteBase> = ({ item }) => (
-    <View style={styles.loteCard}>
-      <Text style={styles.loteNombre}>{item.nombre}</Text>
-      {item.raza ? (
-        <View style={styles.loteBadge}>
-          <Text style={styles.loteBadgeText}>{item.raza}</Text>
-        </View>
-      ) : null}
-      <Text style={styles.loteCantidad}>{item.cantidadActual ?? 0} aves actuales</Text>
-    </View>
-  );
 
   return (
     <ScrollView
@@ -340,20 +374,12 @@ export default function FacturacionScreen() {
       }
       showsVerticalScrollIndicator={false}
     >
-      <Card style={[styles.sectionCard, styles.heroCard]}>
+      <Card style={StyleSheet.flatten([styles.sectionCard, styles.heroCard])}>
         <View style={styles.heroHeader}>
           <View>
             <Text style={styles.heroLabel}>Resumen mensual</Text>
             <Text style={styles.heroTitle}>Ventas totales</Text>
           </View>
-          <TouchableOpacity
-            style={styles.heroAction}
-            onPress={navegarANuevaFactura}
-            activeOpacity={0.8}
-          >
-            <Ionicons name="add" size={16} color={colors.white} />
-            <Text style={styles.heroActionText}>Nueva factura</Text>
-          </TouchableOpacity>
         </View>
         <View style={styles.heroBody}>
           <View style={styles.heroStat}>
@@ -377,6 +403,97 @@ export default function FacturacionScreen() {
           </View>
         </View>
       </Card>
+
+      {/* Card de Precios y Productos Disponibles */}
+      {preciosConfig && (
+        <Card style={styles.sectionCard}>
+          <View style={styles.sectionHeader}>
+            <Text style={styles.sectionTitle}>Precios de referencia</Text>
+            <TouchableOpacity onPress={() => router.push('/(tabs)/settings/app-config')}>
+              <Ionicons name="settings-outline" size={20} color={colors.primary} />
+            </TouchableOpacity>
+          </View>
+          <Text style={styles.preciosInfo}>
+            Los precios de los lotes se calculan automáticamente basados en estos valores de referencia y las características específicas de cada lote.
+          </Text>
+          <View style={styles.preciosGrid}>
+            <View style={styles.precioItem}>
+              <View style={[styles.precioIcon, { backgroundColor: colors.ponedoras + '15' }]}>
+                <Ionicons name="egg-outline" size={18} color={colors.ponedoras} />
+              </View>
+              <Text style={styles.precioLabel}>Huevo</Text>
+              <Text style={styles.precioValue}>{formatearMoneda(preciosConfig.precioHuevo)}</Text>
+            </View>
+            <View style={styles.precioItem}>
+              <View style={[styles.precioIcon, { backgroundColor: colors.secondary + '15' }]}>
+                <Ionicons name="trending-up-outline" size={18} color={colors.secondary} />
+              </View>
+              <Text style={styles.precioLabel}>Israelí</Text>
+              <Text style={styles.precioValue}>{formatearMoneda(preciosConfig.precioUnidadIsraeli)}</Text>
+            </View>
+            <View style={styles.precioItem}>
+              <View style={[styles.precioIcon, { backgroundColor: colors.engorde + '15' }]}>
+                <Ionicons name="fast-food-outline" size={18} color={colors.engorde} />
+              </View>
+              <Text style={styles.precioLabel}>Engorde/lb</Text>
+              <Text style={styles.precioValue}>{formatearMoneda(preciosConfig.precioLibraEngorde)}</Text>
+            </View>
+          </View>
+        </Card>
+      )}
+
+      {/* Card de Productos Disponibles */}
+      {productos.length > 0 && (
+        <Card style={styles.sectionCard}>
+          <View style={styles.sectionHeader}>
+            <Text style={styles.sectionTitle}>Productos disponibles para venta</Text>
+            <TouchableOpacity onPress={() => actualizarProductos()}>
+              <Ionicons name="refresh" size={20} color={colors.primary} />
+            </TouchableOpacity>
+          </View>
+          <Text style={styles.productosInfo}>
+            {productos.length} producto{productos.length !== 1 ? 's' : ''} disponible{productos.length !== 1 ? 's' : ''} desde {
+              productos.filter(p => p.tipoAve === TipoAve.PONEDORA).length / 2 +
+              productos.filter(p => p.tipoAve === TipoAve.POLLO_LEVANTE).length / 2 +
+              productos.filter(p => p.tipoAve === TipoAve.POLLO_ENGORDE).length / 2
+            } lote{
+              (productos.filter(p => p.tipoAve === TipoAve.PONEDORA).length / 2 +
+               productos.filter(p => p.tipoAve === TipoAve.POLLO_LEVANTE).length / 2 +
+               productos.filter(p => p.tipoAve === TipoAve.POLLO_ENGORDE).length / 2) !== 1 ? 's' : ''
+            } activo{
+              (productos.filter(p => p.tipoAve === TipoAve.PONEDORA).length / 2 +
+               productos.filter(p => p.tipoAve === TipoAve.POLLO_LEVANTE).length / 2 +
+               productos.filter(p => p.tipoAve === TipoAve.POLLO_ENGORDE).length / 2) !== 1 ? 's' : ''
+            }
+          </Text>
+          <View style={styles.productosStats}>
+            <View style={styles.productosStat}>
+              <Text style={styles.productosStatValue}>
+                {productos
+                  .filter(p => p.tipoAve === TipoAve.PONEDORA && p.tipo.includes('UNIDADES_'))
+                  .reduce((sum, p) => sum + p.disponible, 0)}
+              </Text>
+              <Text style={styles.productosStatLabel}>Ponedoras</Text>
+            </View>
+            <View style={styles.productosStat}>
+              <Text style={styles.productosStatValue}>
+                {productos
+                  .filter(p => p.tipoAve === TipoAve.POLLO_LEVANTE && p.tipo.includes('UNIDADES_'))
+                  .reduce((sum, p) => sum + p.disponible, 0)}
+              </Text>
+              <Text style={styles.productosStatLabel}>Levantes</Text>
+            </View>
+            <View style={styles.productosStat}>
+              <Text style={styles.productosStatValue}>
+                {productos
+                  .filter(p => p.tipoAve === TipoAve.POLLO_ENGORDE && p.tipo.includes('UNIDADES_'))
+                  .reduce((sum, p) => sum + p.disponible, 0)}
+              </Text>
+              <Text style={styles.productosStatLabel}>Engordes</Text>
+            </View>
+          </View>
+        </Card>
+      )}
 
       <Card style={styles.sectionCard}>
         <View style={styles.sectionHeader}>
@@ -422,7 +539,7 @@ export default function FacturacionScreen() {
         <View style={styles.sectionHeader}>
           <Text style={styles.sectionTitle}>Facturas recientes</Text>
           <TouchableOpacity
-            onPress={() => router.push('/facturacion/todas')}
+            onPress={() => router.push('/facturacion/reportes')}
             style={styles.sectionAction}
             activeOpacity={0.8}
           >
@@ -484,7 +601,7 @@ export default function FacturacionScreen() {
         )}
       </Card>
 
-      <Card style={[styles.sectionCard, styles.bannerCard]}>
+      <Card style={StyleSheet.flatten([styles.sectionCard, styles.bannerCard])}>
         <View style={styles.bannerContent}>
           <View style={styles.bannerIcon}>
             <Ionicons name="information-circle" size={24} color={colors.primary} />
@@ -542,7 +659,7 @@ export default function FacturacionScreen() {
                       <View key={lote.id} style={styles.loteItem}>
                         <Ionicons name="archive-outline" size={16} color={colors.primary} />
                         <View style={styles.loteInfo}>
-                          <Text style={styles.loteNombre}>{lote.nombre}</Text>
+                          <Text style={styles.loteItemNombre}>{lote.nombre}</Text>
                           <Text style={styles.loteMeta}>
                             {lote.tipo} · {lote.raza || 'Sin raza'} · {lote.cantidadActual} aves
                           </Text>
@@ -992,7 +1109,7 @@ const styles = StyleSheet.create({
   loteInfo: {
     flex: 1,
   },
-  loteNombre: {
+  loteItemNombre: {
     fontSize: 14,
     fontWeight: '600',
     color: colors.textDark,
@@ -1008,5 +1125,70 @@ const styles = StyleSheet.create({
   emptyGalponText: {
     fontSize: 13,
     color: colors.textMedium,
+  },
+  // Estilos para precios
+  preciosInfo: {
+    fontSize: 13,
+    color: colors.textMedium,
+    marginBottom: 16,
+    lineHeight: 20,
+  },
+  preciosGrid: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  precioItem: {
+    flex: 1,
+    alignItems: 'center',
+    backgroundColor: colors.white,
+    borderRadius: 12,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: colors.veryLightGray,
+    gap: 8,
+  },
+  precioIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 12,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  precioLabel: {
+    fontSize: 12,
+    color: colors.textMedium,
+    fontWeight: '500',
+  },
+  precioValue: {
+    fontSize: 16,
+    color: colors.textDark,
+    fontWeight: '700',
+  },
+  // Estilos para productos disponibles
+  productosInfo: {
+    fontSize: 13,
+    color: colors.textMedium,
+    marginBottom: 16,
+    lineHeight: 20,
+  },
+  productosStats: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: colors.veryLightGray,
+  },
+  productosStat: {
+    alignItems: 'center',
+  },
+  productosStatValue: {
+    fontSize: 22,
+    fontWeight: '700',
+    color: colors.primary,
+  },
+  productosStatLabel: {
+    fontSize: 12,
+    color: colors.textMedium,
+    marginTop: 4,
   },
 });

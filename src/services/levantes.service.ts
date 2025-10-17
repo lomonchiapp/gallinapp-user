@@ -214,7 +214,7 @@ export const obtenerLotesLevantes = async (): Promise<LoteLevante[]> => {
         
         console.log('👤 Usuario ID:', userId);
         
-        let constraints = [where('userId', '==', userId)];
+        let constraints = [where('createdBy', '==', userId)];
         
         const q = query(
             collection(db, LOTES_COLLECTION),
@@ -523,9 +523,29 @@ export const calcularEstadisticasLoteLevante = async (loteId: string): Promise<E
  * Suscribirse a los lotes de levante
  */
 export const subscribeToLevantes = (callback: (lotes: LoteLevante[]) => void) => {
-    const q = query(collection(db, LOTES_COLLECTION));
+    const userId = getCurrentUserId();
+    if (!userId) {
+        console.log('⚠️ Usuario no autenticado para suscripción de levantes');
+        callback([]);
+        return () => {};
+    }
+    
+    const q = query(
+        collection(db, LOTES_COLLECTION),
+        where('createdBy', '==', userId),
+        orderBy('fechaInicio', 'desc')
+    );
+    
     return onSnapshot(q, (snapshot) => {
-        const lotes = snapshot.docs.map(doc => doc.data() as LoteLevante);
+        const lotes = snapshot.docs.map(doc => {
+            const data = doc.data();
+            return {
+                id: doc.id,
+                ...data,
+                fechaInicio: data.fechaInicio?.toDate ? data.fechaInicio.toDate() : new Date(data.fechaInicio),
+                fechaNacimiento: data.fechaNacimiento?.toDate ? data.fechaNacimiento.toDate() : new Date(data.fechaNacimiento)
+            } as LoteLevante;
+        });
         callback(lotes);
     });
 };

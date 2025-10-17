@@ -1,0 +1,289 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Helper functions
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    function isOwner(userId) {
+      return request.auth.uid == userId;
+    }
+    
+    function isOwnerOrAdmin(userId) {
+      return request.auth.uid == userId || 
+             request.auth.token.admin == true;
+    }
+    
+    function isValidDate(date) {
+      return date is timestamp;
+    }
+    
+    function isValidNumber(num) {
+      return num is number && num >= 0;
+    }
+    
+    function isValidString(str) {
+      return str is string && str.size() > 0;
+    }
+    
+    // Lotes de Ponedoras
+    match /lotesPonedoras/{loteId} {
+      allow read: if isAuthenticated() && 
+                     resource.data.createdBy == request.auth.uid;
+      allow create: if isAuthenticated() && 
+                       request.resource.data.createdBy == request.auth.uid &&
+                       isValidString(request.resource.data.nombre) &&
+                       isValidNumber(request.resource.data.cantidadInicial) &&
+                       isValidNumber(request.resource.data.cantidadActual) &&
+                       isValidDate(request.resource.data.fechaInicio) &&
+                       isValidDate(request.resource.data.fechaNacimiento);
+      allow update: if isAuthenticated() && 
+                       resource.data.createdBy == request.auth.uid &&
+                       isValidNumber(request.resource.data.cantidadActual) &&
+                       request.resource.data.cantidadActual <= resource.data.cantidadInicial;
+      allow delete: if isAuthenticated() && 
+                       resource.data.createdBy == request.auth.uid &&
+                       resource.data.estado != 'VENDIDO';
+    }
+    
+    // Lotes de Levantes
+    match /lotesLevantes/{loteId} {
+      allow read: if isAuthenticated() && 
+                     resource.data.createdBy == request.auth.uid;
+      allow create: if isAuthenticated() && 
+                       request.resource.data.createdBy == request.auth.uid &&
+                       isValidString(request.resource.data.nombre) &&
+                       isValidNumber(request.resource.data.cantidadInicial) &&
+                       isValidNumber(request.resource.data.cantidadActual) &&
+                       isValidDate(request.resource.data.fechaInicio) &&
+                       isValidDate(request.resource.data.fechaNacimiento);
+      allow update: if isAuthenticated() && 
+                       resource.data.createdBy == request.auth.uid &&
+                       isValidNumber(request.resource.data.cantidadActual) &&
+                       request.resource.data.cantidadActual <= resource.data.cantidadInicial;
+      allow delete: if isAuthenticated() && 
+                       resource.data.createdBy == request.auth.uid &&
+                       resource.data.estado != 'VENDIDO';
+    }
+    
+    // Lotes de Engorde
+    match /lotesEngorde/{loteId} {
+      allow read: if isAuthenticated() && 
+                     resource.data.createdBy == request.auth.uid;
+      allow create: if isAuthenticated() && 
+                       request.resource.data.createdBy == request.auth.uid &&
+                       isValidString(request.resource.data.nombre) &&
+                       isValidNumber(request.resource.data.cantidadInicial) &&
+                       isValidNumber(request.resource.data.cantidadActual) &&
+                       isValidDate(request.resource.data.fechaInicio) &&
+                       isValidDate(request.resource.data.fechaNacimiento);
+      allow update: if isAuthenticated() && 
+                       resource.data.createdBy == request.auth.uid &&
+                       isValidNumber(request.resource.data.cantidadActual) &&
+                       request.resource.data.cantidadActual <= resource.data.cantidadInicial;
+      allow delete: if isAuthenticated() && 
+                       resource.data.createdBy == request.auth.uid &&
+                       resource.data.estado != 'VENDIDO';
+    }
+    
+    // Facturas
+    match /facturas/{facturaId} {
+      allow read: if isAuthenticated() && 
+                     resource.data.createdBy == request.auth.uid;
+      allow create: if isAuthenticated() && 
+                       request.resource.data.createdBy == request.auth.uid &&
+                       isValidString(request.resource.data.numero) &&
+                       isValidNumber(request.resource.data.total) &&
+                       isValidDate(request.resource.data.fecha) &&
+                       request.resource.data.estado in ['PENDIENTE', 'PAGADA', 'CANCELADA'];
+      allow update: if isAuthenticated() && 
+                       resource.data.createdBy == request.auth.uid &&
+                       // No permitir cambiar estado a CANCELADA si ya está PAGADA
+                       !(resource.data.estado == 'PAGADA' && request.resource.data.estado == 'CANCELADA') &&
+                       // No permitir cambiar total después de creada
+                       request.resource.data.total == resource.data.total &&
+                       // No permitir cambiar items después de creada
+                       request.resource.data.items == resource.data.items;
+      allow delete: if false; // Nunca eliminar facturas
+    }
+    
+    // Clientes
+    match /clientes/{clienteId} {
+      allow read: if isAuthenticated() && 
+                     resource.data.createdBy == request.auth.uid;
+      allow create: if isAuthenticated() && 
+                       request.resource.data.createdBy == request.auth.uid &&
+                       isValidString(request.resource.data.nombre) &&
+                       isValidString(request.resource.data.email);
+      allow update: if isAuthenticated() && 
+                       resource.data.createdBy == request.auth.uid &&
+                       isValidString(request.resource.data.nombre) &&
+                       isValidString(request.resource.data.email);
+      allow delete: if isAuthenticated() && 
+                       resource.data.createdBy == request.auth.uid;
+    }
+    
+    // Ventas
+    match /ventas/{ventaId} {
+      allow read: if isAuthenticated() && 
+                     resource.data.createdBy == request.auth.uid;
+      allow create: if isAuthenticated() && 
+                       request.resource.data.createdBy == request.auth.uid &&
+                       isValidString(request.resource.data.loteId) &&
+                       isValidNumber(request.resource.data.cantidad) &&
+                       isValidNumber(request.resource.data.total) &&
+                       isValidDate(request.resource.data.fecha);
+      allow update: if false; // Las ventas no se modifican
+      allow delete: if false; // Las ventas no se eliminan
+    }
+    
+    // Gastos
+    match /gastos/{gastoId} {
+      allow read: if isAuthenticated() && 
+                     resource.data.createdBy == request.auth.uid;
+      allow create: if isAuthenticated() && 
+                       request.resource.data.createdBy == request.auth.uid &&
+                       isValidString(request.resource.data.articuloNombre) &&
+                       isValidNumber(request.resource.data.monto) &&
+                       isValidDate(request.resource.data.fecha);
+      allow update: if isAuthenticated() && 
+                       resource.data.createdBy == request.auth.uid &&
+                       isValidNumber(request.resource.data.monto);
+      allow delete: if isAuthenticated() && 
+                       resource.data.createdBy == request.auth.uid;
+    }
+    
+    // Mortalidad
+    match /mortalidad/{mortalidadId} {
+      allow read: if isAuthenticated() && 
+                     resource.data.createdBy == request.auth.uid;
+      allow create: if isAuthenticated() && 
+                       request.resource.data.createdBy == request.auth.uid &&
+                       isValidString(request.resource.data.loteId) &&
+                       isValidNumber(request.resource.data.cantidad) &&
+                       isValidDate(request.resource.data.fecha);
+      allow update: if isAuthenticated() && 
+                       resource.data.createdBy == request.auth.uid &&
+                       isValidNumber(request.resource.data.cantidad);
+      allow delete: if isAuthenticated() && 
+                       resource.data.createdBy == request.auth.uid;
+    }
+    
+    // Registros de Peso
+    match /registrosPeso/{pesoId} {
+      allow read: if isAuthenticated() && 
+                     resource.data.createdBy == request.auth.uid;
+      allow create: if isAuthenticated() && 
+                       request.resource.data.createdBy == request.auth.uid &&
+                       isValidString(request.resource.data.loteId) &&
+                       isValidNumber(request.resource.data.pesoPromedio) &&
+                       isValidDate(request.resource.data.fecha);
+      allow update: if isAuthenticated() && 
+                       resource.data.createdBy == request.auth.uid &&
+                       isValidNumber(request.resource.data.pesoPromedio);
+      allow delete: if isAuthenticated() && 
+                       resource.data.createdBy == request.auth.uid;
+    }
+    
+    // Configuración de Facturación
+    match /configuracion_facturacion/{userId} {
+      allow read: if isAuthenticated() && 
+                     resource.id == request.auth.uid;
+      allow create: if isAuthenticated() && 
+                       request.resource.id == request.auth.uid &&
+                       isValidString(request.resource.data.empresa.nombre);
+      allow update: if isAuthenticated() && 
+                       resource.id == request.auth.uid &&
+                       isValidString(request.resource.data.empresa.nombre);
+      allow delete: if false; // No eliminar configuración
+    }
+    
+    // Contador de Facturas
+    match /contador_facturas/{userId} {
+      allow read: if isAuthenticated() && 
+                     resource.id == request.auth.uid;
+      allow create: if isAuthenticated() && 
+                       request.resource.id == request.auth.uid &&
+                       isValidNumber(request.resource.data.siguienteNumero);
+      allow update: if isAuthenticated() && 
+                       resource.id == request.auth.uid &&
+                       isValidNumber(request.resource.data.siguienteNumero);
+      allow delete: if false; // No eliminar contador
+    }
+    
+    // Audit Log
+    match /audit_log/{auditId} {
+      allow read: if isAuthenticated() && 
+                     resource.data.userId == request.auth.uid;
+      allow create: if isAuthenticated() && 
+                       request.resource.data.userId == request.auth.uid;
+      allow update: if false; // No modificar audit log
+      allow delete: if false; // No eliminar audit log
+    }
+    
+    // Configuración de Métricas
+    match /metricasReferencia/{userId} {
+      allow read: if isAuthenticated() && 
+                     resource.id == request.auth.uid;
+      allow create: if isAuthenticated() && 
+                       request.resource.id == request.auth.uid;
+      allow update: if isAuthenticated() && 
+                       resource.id == request.auth.uid;
+      allow delete: if false; // No eliminar métricas
+    }
+    
+    // Notificaciones
+    match /notifications/{notificationId} {
+      allow read: if isAuthenticated() && 
+                     resource.data.userId == request.auth.uid;
+      allow create: if isAuthenticated() && 
+                       request.resource.data.userId == request.auth.uid;
+      allow update: if isAuthenticated() && 
+                       resource.data.userId == request.auth.uid &&
+                       // Solo permitir marcar como leída
+                       request.resource.data.read == true &&
+                       resource.data.read == false;
+      allow delete: if isAuthenticated() && 
+                       resource.data.userId == request.auth.uid;
+    }
+    
+    // Galpones
+    match /galpones/{galponId} {
+      allow read: if isAuthenticated() && 
+                     resource.data.createdBy == request.auth.uid;
+      allow create: if isAuthenticated() && 
+                       request.resource.data.createdBy == request.auth.uid &&
+                       isValidString(request.resource.data.nombre);
+      allow update: if isAuthenticated() && 
+                       resource.data.createdBy == request.auth.uid &&
+                       isValidString(request.resource.data.nombre);
+      allow delete: if isAuthenticated() && 
+                       resource.data.createdBy == request.auth.uid;
+    }
+    
+    // Configuración de App
+    match /appConfig/{userId} {
+      allow read: if isAuthenticated() && 
+                     resource.id == request.auth.uid;
+      allow create: if isAuthenticated() && 
+                       request.resource.id == request.auth.uid;
+      allow update: if isAuthenticated() && 
+                       resource.id == request.auth.uid;
+      allow delete: if false; // No eliminar configuración
+    }
+    
+    // Denegar acceso a cualquier otra colección
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
+
+
+
+
+
+
+

@@ -12,7 +12,7 @@ interface AuthGuardProps {
 }
 
 export const AuthGuard: React.FC<AuthGuardProps> = ({ children }) => {
-  const { isAuthenticated, isLoading, loadUser } = useAuthStore();
+  const { isAuthenticated, isLoading, loadUser, initializeAuthListener } = useAuthStore();
   const segments = useSegments();
   const router = useRouter();
   
@@ -20,9 +20,19 @@ export const AuthGuard: React.FC<AuthGuardProps> = ({ children }) => {
   const isAuthGroup = segments[0] === 'auth';
   
   useEffect(() => {
-    // Cargar el usuario al iniciar la aplicación
+    // Inicializar listener de Firebase Auth
+    console.log('🔄 AuthGuard: Inicializando listener de Firebase Auth...');
+    const unsubscribe = initializeAuthListener();
+    
+    // También cargar usuario inicial (por si acaso)
     loadUser();
-  }, [loadUser]);
+    
+    return () => {
+      console.log('🔄 AuthGuard: Limpiando listener de Firebase Auth...');
+      unsubscribe();
+    };
+  }, [loadUser, initializeAuthListener]);
+  
   
   useEffect(() => {
     if (isLoading) return;

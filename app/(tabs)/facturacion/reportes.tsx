@@ -18,9 +18,9 @@ import { useFacturacion } from '../../../src/hooks/useFacturacion';
 import { EstadoFactura, Factura } from '../../../src/types/facturacion';
 
 const formatearMoneda = (valor: number): string =>
-  new Intl.NumberFormat('es-DO', {
+  new Intl.NumberFormat('es-CO', {
     style: 'currency',
-    currency: 'DOP',
+    currency: 'COP',
     minimumFractionDigits: 0,
   }).format(valor);
 
@@ -485,6 +485,9 @@ const styles = StyleSheet.create({
     color: colors.textMedium,
   },
 });
+
+
+
 
 
 

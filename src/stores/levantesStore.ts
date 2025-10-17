@@ -3,6 +3,7 @@
  */
 
 import { create } from 'zustand';
+import { runAutomaticWelfareCheck } from '../services/animal-welfare-monitoring.service';
 import {
     actualizarLoteLevante,
     calcularEstadisticasLoteLevante,
@@ -98,8 +99,33 @@ export const useLevantesStore = create<LevantesState>((set, get) => ({
     error: null,
     observaciones: null,
     suscribirseALevantes: () => {
-        return subscribeToLevantes(lotes => {
+        return subscribeToLevantes(async (lotes) => {
             set({ lotes });
+            
+            // 🐔 MONITOREO AUTOMÁTICO DE BIENESTAR ANIMAL
+            // Ejecutar verificación de bienestar cada vez que se actualizan los lotes
+            try {
+                console.log('🐔 Ejecutando monitoreo automático de bienestar animal...');
+                
+                // Obtener datos necesarios para el monitoreo
+                const { usePesoStore } = await import('./pesoStore');
+                const { useMortalityStore } = await import('./mortalityStore');
+                
+                const registrosPeso = usePesoStore.getState().registrosPeso || [];
+                const registrosMortalidad = useMortalityStore.getState().registros || [];
+                
+                // Ejecutar monitoreo
+                await runAutomaticWelfareCheck(
+                    lotes,
+                    registrosPeso,
+                    [], // No hay registros de huevos para levantes
+                    registrosMortalidad
+                );
+                
+                console.log('✅ Monitoreo de bienestar completado');
+            } catch (error) {
+                console.error('❌ Error en monitoreo automático de bienestar:', error);
+            }
         });
     },
     // Acciones - Lotes

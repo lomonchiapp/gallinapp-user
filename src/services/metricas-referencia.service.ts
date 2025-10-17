@@ -370,3 +370,14 @@ export const obtenerMetricaPonedorasPorRaza = async (
     }
 };
 
+
+
+
+
+
+
+
+
+
+
+

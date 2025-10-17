@@ -1,154 +1,54 @@
 /**
- * Servicio de autenticación para Asoaves
+ * Servicio de autenticación centralizado
  */
 
 import {
-  createUserWithEmailAndPassword,
-  User as FirebaseUser,
-  sendPasswordResetEmail,
-  signInWithEmailAndPassword,
-  signOut,
-  updateProfile
+    createUserWithEmailAndPassword,
+    sendPasswordResetEmail,
+    signInWithEmailAndPassword,
+    signOut,
+    UserCredential
 } from 'firebase/auth';
-import { doc, getDoc, serverTimestamp, setDoc } from 'firebase/firestore';
+import { doc, getDoc, setDoc } from 'firebase/firestore';
 import { auth, db } from '../components/config/firebase';
-import { User, UserRole } from '../types';
+import { UserRole } from '../types/enums';
+
+export interface AppUser {
+  uid: string;
+  email: string;
+  displayName: string;
+  role: UserRole;
+  lastLogin: Date;
+  createdAt: Date;
+}
 
 /**
- * Registrar un nuevo usuario
+ * Obtiene el usuario actual completo desde Firebase Auth y Firestore
  */
-export const registerUser = async (
-  email: string, 
-  password: string, 
-  displayName: string,
-  role: UserRole = UserRole.OPERADOR
-): Promise<User> => {
+export const getCurrentUser = async (): Promise<AppUser | null> => {
   try {
-    // Crear usuario en Firebase Auth
-    const userCredential = await createUserWithEmailAndPassword(auth, email, password);
-    const firebaseUser = userCredential.user;
-    
-    // Actualizar el perfil con el displayName
-    await updateProfile(firebaseUser, { displayName });
-    
-    // Crear documento de usuario en Firestore
-    const userData: User = {
-      uid: firebaseUser.uid,
-      email: firebaseUser.email!,
-      displayName,
-      role,
-      lastLogin: new Date()
-    };
-    
-    await setDoc(doc(db, 'users', firebaseUser.uid), {
-      uid: firebaseUser.uid,
-      email: firebaseUser.email!,
-      displayName,
-      role,
-      lastLogin: serverTimestamp()
-    });
-    
-    return userData;
-  } catch (error) {
-    console.error('Error al registrar usuario:', error);
-    throw error;
-  }
-};
-
-/**
- * Iniciar sesión con email y contraseña
- */
-export const loginUser = async (email: string, password: string): Promise<User> => {
-  try {
-    console.log('🔐 Iniciando proceso de login para:', email);
-    const userCredential = await signInWithEmailAndPassword(auth, email, password);
-    const firebaseUser = userCredential.user;
-    console.log('✅ Usuario autenticado en Firebase:', firebaseUser.uid);
-    
-    // Actualizar última fecha de inicio de sesión
-    const userRef = doc(db, 'users', firebaseUser.uid);
-    await setDoc(userRef, { lastLogin: serverTimestamp() }, { merge: true });
-    console.log('📝 Actualizado lastLogin en Firestore');
-    
-    // Obtener datos completos del usuario
-    const userDoc = await getDoc(userRef);
-    console.log('📄 Documento de usuario obtenido:', userDoc.exists());
-    
-    if (userDoc.exists()) {
-      const userData = userDoc.data();
-      console.log('👤 Datos del usuario desde Firestore:', userData);
-      
-      const user: User = {
-        uid: firebaseUser.uid,
-        email: userData.email || firebaseUser.email!,
-        displayName: userData.displayName || firebaseUser.displayName!,
-        role: userData.role as UserRole,
-        photoURL: firebaseUser.photoURL,
-        lastLogin: userData.lastLogin?.toDate ? userData.lastLogin.toDate() : new Date()
-      };
-      
-      console.log('🎉 Usuario procesado correctamente:', user);
-      return user;
-    } else {
-      console.error('❌ Usuario no encontrado en Firestore');
-      throw new Error('Usuario no encontrado en la base de datos');
-    }
-  } catch (error) {
-    console.error('❌ Error al iniciar sesión:', error);
-    throw error;
-  }
-};
-
-/**
- * Cerrar sesión
- */
-export const logoutUser = async (): Promise<void> => {
-  try {
-    await signOut(auth);
-  } catch (error) {
-    console.error('Error al cerrar sesión:', error);
-    throw error;
-  }
-};
-
-/**
- * Enviar correo para restablecer contraseña
- */
-export const resetPassword = async (email: string): Promise<void> => {
-  try {
-    await sendPasswordResetEmail(auth, email);
-  } catch (error) {
-    console.error('Error al enviar correo de restablecimiento:', error);
-    throw error;
-  }
-};
-
-/**
- * Obtener usuario actual
- */
-export const getCurrentUser = async (): Promise<User | null> => {
-  const firebaseUser = auth.currentUser;
-  
-  if (!firebaseUser) {
-    return null;
-  }
-  
-  try {
-    const userDoc = await getDoc(doc(db, 'users', firebaseUser.uid));
-    
-    if (userDoc.exists()) {
-      const userData = userDoc.data();
-      return {
-        uid: firebaseUser.uid,
-        email: userData.email || firebaseUser.email!,
-        displayName: userData.displayName || firebaseUser.displayName!,
-        role: userData.role as UserRole,
-        photoURL: firebaseUser.photoURL,
-        lastLogin: userData.lastLogin?.toDate ? userData.lastLogin.toDate() : new Date()
-      };
-    } else {
+    const firebaseUser = auth.currentUser;
+    if (!firebaseUser) {
       return null;
     }
+
+    // Obtener datos adicionales del usuario desde Firestore
+    const userDoc = await getDoc(doc(db, 'users', firebaseUser.uid));
+    
+    if (!userDoc.exists()) {
+      console.warn('Usuario de Firebase Auth existe pero no en Firestore');
+      return null;
+    }
+
+    const userData = userDoc.data();
+    return {
+      uid: firebaseUser.uid,
+      email: firebaseUser.email || '',
+      displayName: userData.displayName || '',
+      role: userData.role || UserRole.OPERADOR,
+      lastLogin: userData.lastLogin?.toDate() || new Date(),
+      createdAt: userData.createdAt?.toDate() || new Date(),
+    };
   } catch (error) {
     console.error('Error al obtener usuario actual:', error);
     return null;
@@ -156,36 +56,144 @@ export const getCurrentUser = async (): Promise<User | null> => {
 };
 
 /**
- * Verificar si el usuario está autenticado
+ * Obtiene el ID del usuario actual
  */
-export const isAuthenticated = (): boolean => {
-  return auth.currentUser !== null;
+export const getCurrentUserId = (): string | null => {
+  try {
+    const user = auth.currentUser;
+    return user?.uid || null;
+  } catch (error) {
+    console.error('Error al obtener usuario actual:', error);
+    return null;
+  }
 };
 
 /**
- * Obtener el ID del usuario actual
+ * Obtiene el email del usuario actual
  */
-export const getCurrentUserId = (): string | null => {
-  const userId = auth.currentUser?.uid || null;
-  console.log('🔑 getCurrentUserId called:', {
-    hasCurrentUser: !!auth.currentUser,
-    userId: userId,
-    userEmail: auth.currentUser?.email
-  });
+export const getCurrentUserEmail = (): string | null => {
+  try {
+    const user = auth.currentUser;
+    return user?.email || null;
+  } catch (error) {
+    console.error('Error al obtener email del usuario:', error);
+    return null;
+  }
+};
+
+/**
+ * Verifica si el usuario está autenticado
+ */
+export const isAuthenticated = (): boolean => {
+  return getCurrentUserId() !== null;
+};
+
+/**
+ * Requiere autenticación - lanza error si no está autenticado
+ */
+export const requireAuth = (): string => {
+  const userId = getCurrentUserId();
+  if (!userId) {
+    throw new Error('Usuario no autenticado');
+  }
   return userId;
 };
 
 /**
- * Convertir FirebaseUser a User
+ * Inicia sesión con email y contraseña
  */
-export const firebaseUserToUser = (firebaseUser: FirebaseUser, userData?: Partial<User>): User => {
-  return {
-    uid: firebaseUser.uid,
-    email: firebaseUser.email!,
-    displayName: firebaseUser.displayName || 'Usuario',
-    role: userData?.role || UserRole.OPERADOR,
-    photoURL: firebaseUser.photoURL,
-    lastLogin: new Date()
-  };
+export const loginUser = async (email: string, password: string): Promise<AppUser> => {
+  try {
+    console.log('🔐 Iniciando sesión para:', email);
+    
+    const userCredential: UserCredential = await signInWithEmailAndPassword(auth, email, password);
+    const firebaseUser = userCredential.user;
+    
+    // Actualizar último login en Firestore
+    await setDoc(doc(db, 'users', firebaseUser.uid), {
+      lastLogin: new Date()
+    }, { merge: true });
+    
+    // Obtener datos completos del usuario
+    const appUser = await getCurrentUser();
+    if (!appUser) {
+      throw new Error('Error al obtener datos del usuario');
+    }
+    
+    console.log('✅ Sesión iniciada exitosamente para:', email);
+    return appUser;
+  } catch (error: any) {
+    console.error('❌ Error al iniciar sesión:', error);
+    throw new Error(error.message || 'Error al iniciar sesión');
+  }
 };
 
+/**
+ * Registra un nuevo usuario
+ */
+export const registerUser = async (
+  email: string, 
+  password: string, 
+  displayName: string, 
+  role: UserRole = UserRole.OPERADOR
+): Promise<AppUser> => {
+  try {
+    console.log('📝 Registrando nuevo usuario:', email);
+    
+    const userCredential: UserCredential = await createUserWithEmailAndPassword(auth, email, password);
+    const firebaseUser = userCredential.user;
+    
+    // Crear documento del usuario en Firestore
+    const userData = {
+      email: firebaseUser.email,
+      displayName,
+      role,
+      createdAt: new Date(),
+      lastLogin: new Date()
+    };
+    
+    await setDoc(doc(db, 'users', firebaseUser.uid), userData);
+    
+    console.log('✅ Usuario registrado exitosamente:', email);
+    
+    return {
+      uid: firebaseUser.uid,
+      email: firebaseUser.email || '',
+      displayName,
+      role,
+      lastLogin: new Date(),
+      createdAt: new Date(),
+    };
+  } catch (error: any) {
+    console.error('❌ Error al registrar usuario:', error);
+    throw new Error(error.message || 'Error al registrar usuario');
+  }
+};
+
+/**
+ * Cierra la sesión del usuario
+ */
+export const logoutUser = async (): Promise<void> => {
+  try {
+    console.log('🚪 Cerrando sesión...');
+    await signOut(auth);
+    console.log('✅ Sesión cerrada exitosamente');
+  } catch (error: any) {
+    console.error('❌ Error al cerrar sesión:', error);
+    throw new Error(error.message || 'Error al cerrar sesión');
+  }
+};
+
+/**
+ * Envía email para restablecer contraseña
+ */
+export const resetPassword = async (email: string): Promise<void> => {
+  try {
+    console.log('📧 Enviando email de restablecimiento a:', email);
+    await sendPasswordResetEmail(auth, email);
+    console.log('✅ Email de restablecimiento enviado');
+  } catch (error: any) {
+    console.error('❌ Error al enviar email de restablecimiento:', error);
+    throw new Error(error.message || 'Error al enviar email de restablecimiento');
+  }
+};

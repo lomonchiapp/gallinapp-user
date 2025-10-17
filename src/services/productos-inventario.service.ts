@@ -5,11 +5,10 @@
 
 import { EstadoLote, TipoAve } from '../types/enums';
 import { Producto, ProductoLoteCompleto, ProductoUnidades, TipoProducto } from '../types/facturacion';
-
-// Importar los servicios existentes (cuando estén disponibles)
-// import { ponedorasService } from './ponedoras.service';
-// import { levantesService } from './levantes.service'; 
-// import { engordeService } from './engorde.service';
+import { obtenerConfiguracion } from './appConfig.service';
+import { actualizarLoteEngorde, obtenerLotesEngorde } from './engorde.service';
+import { actualizarLoteLevante, obtenerLotesLevantes } from './levantes.service';
+import { actualizarLotePonedora, obtenerLotesPonedoras } from './ponedoras.service';
 
 class ProductosInventarioService {
   
@@ -28,19 +27,22 @@ class ProductosInventarioService {
       ]);
       
       // Convertir lotes de ponedoras a productos
-      lotesPonedoras.forEach(lote => {
-        productos.push(...this.convertirLoteAProductos(lote, TipoAve.PONEDORA));
-      });
+      for (const lote of lotesPonedoras) {
+        const productosLote = await this.convertirLoteAProductos(lote, TipoAve.PONEDORA);
+        productos.push(...productosLote);
+      }
       
       // Convertir lotes de levante a productos
-      lotesLevante.forEach(lote => {
-        productos.push(...this.convertirLoteAProductos(lote, TipoAve.POLLO_LEVANTE));
-      });
+      for (const lote of lotesLevante) {
+        const productosLote = await this.convertirLoteAProductos(lote, TipoAve.POLLO_LEVANTE);
+        productos.push(...productosLote);
+      }
       
       // Convertir lotes de engorde a productos
-      lotesEngorde.forEach(lote => {
-        productos.push(...this.convertirLoteAProductos(lote, TipoAve.POLLO_ENGORDE));
-      });
+      for (const lote of lotesEngorde) {
+        const productosLote = await this.convertirLoteAProductos(lote, TipoAve.POLLO_ENGORDE);
+        productos.push(...productosLote);
+      }
       
       return productos;
     } catch (error) {
@@ -52,7 +54,7 @@ class ProductosInventarioService {
   /**
    * Convierte un lote en productos vendibles (lote completo + unidades individuales)
    */
-  private convertirLoteAProductos(lote: any, tipoAve: TipoAve): Producto[] {
+  private async convertirLoteAProductos(lote: any, tipoAve: TipoAve): Promise<Producto[]> {
     const productos: Producto[] = [];
     
     if (lote.estado !== EstadoLote.ACTIVO || lote.cantidadActual <= 0) {
@@ -60,14 +62,14 @@ class ProductosInventarioService {
     }
     
     const edadEnDias = this.calcularEdadEnDias(lote.fechaNacimiento);
-    const precioUnitario = this.calcularPrecioUnitario(lote, tipoAve);
-    const precioLoteCompleto = this.calcularPrecioLoteCompleto(lote, tipoAve);
+    const precioUnitario = await this.calcularPrecioUnitario(lote, tipoAve);
+    const precioLoteCompleto = await this.calcularPrecioLoteCompleto(lote, tipoAve);
     
     // 1. Lote completo como producto
     const productoLoteCompleto: ProductoLoteCompleto = {
       id: `lote-${lote.id}`,
-      nombre: `Lote ${lote.nombre} - ${lote.raza || 'Sin especificar'}`,
-      descripcion: `Lote completo de ${lote.cantidadActual} ${this.getNombreAve(tipoAve)}`,
+      nombre: `Lote completo: ${lote.nombre}`,
+      descripcion: `${lote.cantidadActual} ${this.getNombreAve(tipoAve)} - ${lote.raza || 'Sin especificar'} (${edadEnDias} días)`,
       tipo: TipoProducto.LOTE_COMPLETO,
       tipoAve,
       precioUnitario: precioLoteCompleto,
@@ -87,8 +89,8 @@ class ProductosInventarioService {
     const tipoUnidades = this.getTipoProductoUnidades(tipoAve);
     const productoUnidades: ProductoUnidades = {
       id: `unidades-${lote.id}`,
-      nombre: `${this.getNombreAve(tipoAve)} - ${lote.raza || 'Sin especificar'}`,
-      descripcion: `Unidades individuales del lote ${lote.nombre}`,
+      nombre: `${this.getNombreAve(tipoAve)} - ${lote.nombre}`,
+      descripcion: `Unidades individuales de ${lote.raza || 'Sin especificar'} (${edadEnDias} días)`,
       tipo: tipoUnidades,
       tipoAve,
       precioUnitario,
@@ -110,11 +112,8 @@ class ProductosInventarioService {
    */
   private async obtenerLotesPonedoras(): Promise<any[]> {
     try {
-      // Integración real con el servicio de ponedoras
-      // return await ponedorasService.getLotes();
-      
-      // Por ahora retornamos datos de ejemplo
-      return this.getLotesEjemplo(TipoAve.PONEDORA);
+      const lotes = await obtenerLotesPonedoras();
+      return lotes.filter(lote => lote.estado === EstadoLote.ACTIVO && lote.cantidadActual > 0);
     } catch (error) {
       console.error('Error al obtener lotes de ponedoras:', error);
       return [];
@@ -126,11 +125,8 @@ class ProductosInventarioService {
    */
   private async obtenerLotesLevante(): Promise<any[]> {
     try {
-      // Integración real con el servicio de levantes
-      // return await levantesService.getLotes();
-      
-      // Por ahora retornamos datos de ejemplo
-      return this.getLotesEjemplo(TipoAve.POLLO_LEVANTE);
+      const lotes = await obtenerLotesLevantes();
+      return lotes.filter(lote => lote.estado === EstadoLote.ACTIVO && lote.cantidadActual > 0);
     } catch (error) {
       console.error('Error al obtener lotes de levante:', error);
       return [];
@@ -142,11 +138,8 @@ class ProductosInventarioService {
    */
   private async obtenerLotesEngorde(): Promise<any[]> {
     try {
-      // Integración real con el servicio de engorde
-      // return await engordeService.getLotes();
-      
-      // Por ahora retornamos datos de ejemplo
-      return this.getLotesEjemplo(TipoAve.POLLO_ENGORDE);
+      const lotes = await obtenerLotesEngorde();
+      return lotes.filter(lote => lote.estado === EstadoLote.ACTIVO && lote.cantidadActual > 0);
     } catch (error) {
       console.error('Error al obtener lotes de engorde:', error);
       return [];
@@ -197,43 +190,71 @@ class ProductosInventarioService {
   
   /**
    * Calcula el precio unitario basado en el tipo de ave y características del lote
+   * Usa la configuración de precios de la aplicación
    */
-  private calcularPrecioUnitario(lote: any, tipoAve: TipoAve): number {
-    const edadEnDias = this.calcularEdadEnDias(lote.fechaNacimiento);
-    
-    switch (tipoAve) {
-      case TipoAve.PONEDORA:
-        // Precio basado en edad y capacidad productiva
-        if (edadEnDias < 120) return 15000; // Pollitas
-        if (edadEnDias < 365) return 25000; // En producción
-        return 20000; // Maduras
-        
-      case TipoAve.POLLO_LEVANTE:
-        // Precio basado en peso y edad
-        const precioBase = 12000;
-        const factorPeso = lote.pesoPromedio ? (lote.pesoPromedio * 1000) : 1000;
-        return precioBase + factorPeso;
-        
-      case TipoAve.POLLO_ENGORDE:
-        // Precio basado en peso principalmente
-        const precioEngorde = 8000;
-        const factorPesoEngorde = lote.pesoPromedio ? (lote.pesoPromedio * 2000) : 2000;
-        return precioEngorde + factorPesoEngorde;
-        
-      default:
-        return 20000;
+  private async calcularPrecioUnitario(lote: any, tipoAve: TipoAve): Promise<number> {
+    try {
+      const config = await obtenerConfiguracion();
+      
+      switch (tipoAve) {
+        case TipoAve.PONEDORA:
+          // Precio por gallina ponedora basado en precio unitario israelí
+          // Ajustar según edad y capacidad productiva
+          const edadEnDias = this.calcularEdadEnDias(lote.fechaNacimiento);
+          const precioBasePonedora = config.precioUnidadIsraeli || 150; // RD$
+          
+          // Lógica de precios por edad
+          if (edadEnDias < 120) return Math.round(precioBasePonedora * 0.7); // Pollitas (70%)
+          if (edadEnDias < 365) return Math.round(precioBasePonedora * 1.2); // En producción (120%)
+          return Math.round(precioBasePonedora); // Maduras (100%)
+          
+        case TipoAve.POLLO_LEVANTE:
+          // Precio por pollo levante (israelí) - precio fijo
+          return Math.round(config.precioUnidadIsraeli || 150); // RD$ por unidad
+          
+        case TipoAve.POLLO_ENGORDE:
+          // Precio basado en peso promedio del lote y precio por libra
+          const precioLibra = config.precioLibraEngorde || 65; // RD$ por libra
+          const pesoPromedioKg = lote.pesoPromedio || 2.5; // kg (asumiendo que viene en kg)
+          const pesoPromedioLibras = pesoPromedioKg * 2.20462; // Convertir a libras
+          return Math.round(pesoPromedioLibras * precioLibra);
+          
+        default:
+          return 100;
+      }
+    } catch (error) {
+      console.error('Error al calcular precio unitario:', error);
+      // Precios de respaldo si falla la configuración
+      switch (tipoAve) {
+        case TipoAve.PONEDORA:
+          return 120;
+        case TipoAve.POLLO_LEVANTE:
+          return 150;
+        case TipoAve.POLLO_ENGORDE:
+          return 150;
+        default:
+          return 100;
+      }
     }
   }
   
   /**
    * Calcula el precio del lote completo (con descuento por volumen)
    */
-  private calcularPrecioLoteCompleto(lote: any, tipoAve: TipoAve): number {
-    const precioUnitario = this.calcularPrecioUnitario(lote, tipoAve);
+  private async calcularPrecioLoteCompleto(lote: any, tipoAve: TipoAve): Promise<number> {
+    const precioUnitario = await this.calcularPrecioUnitario(lote, tipoAve);
     const precioTotal = precioUnitario * lote.cantidadActual;
     
-    // Aplicar descuento por lote completo (5-10%)
-    const descuentoPorcentaje = lote.cantidadActual > 100 ? 0.1 : 0.05;
+    // Aplicar descuento por lote completo basado en cantidad
+    let descuentoPorcentaje = 0;
+    if (lote.cantidadActual >= 200) {
+      descuentoPorcentaje = 0.12; // 12% para lotes grandes
+    } else if (lote.cantidadActual >= 100) {
+      descuentoPorcentaje = 0.08; // 8% para lotes medianos
+    } else if (lote.cantidadActual >= 50) {
+      descuentoPorcentaje = 0.05; // 5% para lotes pequeños
+    }
+    
     return Math.round(precioTotal * (1 - descuentoPorcentaje));
   }
   
@@ -305,18 +326,29 @@ class ProductosInventarioService {
    * Actualiza el inventario después de una venta
    * Reduce la cantidad disponible en el lote original
    */
-  async actualizarInventarioPorVenta(productoId: string, cantidadVendida: number): Promise<void> {
+  async actualizarInventarioPorVenta(productoId: string, cantidadVendida: number, tipoAve: TipoAve): Promise<void> {
     try {
+      console.log(`🔄 Actualizando inventario por venta: ${productoId}, cantidad: ${cantidadVendida}, tipo: ${tipoAve}`);
+      
       // Extraer información del ID del producto
-      const [tipo, loteId] = productoId.split('-');
+      const [tipo, ...loteIdParts] = productoId.split('-');
+      const loteId = loteIdParts.join('-'); // Reconstituir el ID si tiene guiones
+      
+      console.log(`📦 Procesando venta - Tipo: ${tipo}, LoteId: ${loteId}`);
       
       if (tipo === 'lote') {
         // Venta de lote completo - marcar lote como vendido
-        await this.marcarLoteComoVendido(loteId);
+        console.log(`🏷️ Marcando lote completo ${loteId} como vendido`);
+        await this.marcarLoteComoVendido(loteId, tipoAve);
       } else if (tipo === 'unidades') {
         // Venta de unidades individuales - reducir cantidad del lote
-        await this.reducirCantidadLote(loteId, cantidadVendida);
+        console.log(`📉 Reduciendo ${cantidadVendida} unidades del lote ${loteId}`);
+        await this.reducirCantidadLote(loteId, cantidadVendida, tipoAve);
+      } else {
+        console.warn(`⚠️ Tipo de producto no reconocido: ${tipo}`);
       }
+      
+      console.log(`✅ Inventario actualizado exitosamente para ${productoId}`);
     } catch (error) {
       console.error('Error al actualizar inventario por venta:', error);
       throw error;
@@ -326,23 +358,97 @@ class ProductosInventarioService {
   /**
    * Marca un lote como vendido
    */
-  private async marcarLoteComoVendido(loteId: string): Promise<void> {
-    // Integración con servicios de lotes para cambiar estado
-    console.log(`Marcando lote ${loteId} como vendido`);
-    // await loteService.actualizarEstado(loteId, EstadoLote.VENDIDO);
+  private async marcarLoteComoVendido(loteId: string, tipoAve: TipoAve): Promise<void> {
+    try {
+      console.log(`🏷️ Marcando lote ${loteId} como vendido (${tipoAve})`);
+      
+      const actualizacion = {
+        estado: EstadoLote.VENDIDO,
+        fechaVenta: new Date(),
+      };
+      
+      switch (tipoAve) {
+        case TipoAve.PONEDORA:
+          await actualizarLotePonedora(loteId, actualizacion);
+          break;
+        case TipoAve.POLLO_LEVANTE:
+          await actualizarLoteLevante(loteId, actualizacion);
+          break;
+        case TipoAve.POLLO_ENGORDE:
+          await actualizarLoteEngorde(loteId, actualizacion);
+          break;
+      }
+      
+      console.log(`✅ Lote ${loteId} marcado como vendido`);
+    } catch (error) {
+      console.error(`❌ Error al marcar lote ${loteId} como vendido:`, error);
+      throw error;
+    }
   }
   
   /**
    * Reduce la cantidad disponible en un lote
    */
-  private async reducirCantidadLote(loteId: string, cantidad: number): Promise<void> {
-    // Integración con servicios de lotes para reducir cantidad
-    console.log(`Reduciendo ${cantidad} unidades del lote ${loteId}`);
-    // await loteService.reducirCantidad(loteId, cantidad);
+  private async reducirCantidadLote(loteId: string, cantidad: number, tipoAve: TipoAve): Promise<void> {
+    try {
+      console.log(`📉 Reduciendo ${cantidad} unidades del lote ${loteId} (${tipoAve})`);
+      
+      // Obtener lote actual
+      let lote: any;
+      switch (tipoAve) {
+        case TipoAve.PONEDORA:
+          const ponedoras = await obtenerLotesPonedoras();
+          lote = ponedoras.find(l => l.id === loteId);
+          break;
+        case TipoAve.POLLO_LEVANTE:
+          const levantes = await obtenerLotesLevantes();
+          lote = levantes.find(l => l.id === loteId);
+          break;
+        case TipoAve.POLLO_ENGORDE:
+          const engordes = await getLotesEngorde();
+          lote = engordes.find(l => l.id === loteId);
+          break;
+      }
+      
+      if (!lote) {
+        throw new Error(`Lote ${loteId} no encontrado`);
+      }
+      
+      const nuevaCantidad = Math.max(0, lote.cantidadActual - cantidad);
+      const actualizacion: any = {
+        cantidadActual: nuevaCantidad,
+      };
+      
+      // Si se vendió todo, marcar como vendido
+      if (nuevaCantidad === 0) {
+        actualizacion.estado = EstadoLote.VENDIDO;
+        actualizacion.fechaVenta = new Date();
+      }
+      
+      switch (tipoAve) {
+        case TipoAve.PONEDORA:
+          await actualizarLotePonedora(loteId, actualizacion);
+          break;
+        case TipoAve.POLLO_LEVANTE:
+          await actualizarLoteLevante(loteId, actualizacion);
+          break;
+        case TipoAve.POLLO_ENGORDE:
+          await actualizarLoteEngorde(loteId, actualizacion);
+          break;
+      }
+      
+      console.log(`✅ Lote ${loteId} actualizado. Nueva cantidad: ${nuevaCantidad}`);
+    } catch (error) {
+      console.error(`❌ Error al reducir cantidad del lote ${loteId}:`, error);
+      throw error;
+    }
   }
 }
 
 export const productosInventarioService = new ProductosInventarioService();
+
+
+
 
 
 

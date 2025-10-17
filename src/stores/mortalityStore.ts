@@ -4,9 +4,10 @@
 
 import { create } from 'zustand';
 import {
-  obtenerRegistrosMortalidad,
-  obtenerTotalMortalidad,
-  registrarMortalidad
+    obtenerRegistrosMortalidad,
+    obtenerTotalMortalidad,
+    registrarMortalidad,
+    suscribirseAMortalidad
 } from '../services/mortality.service';
 import { RegistroMortalidad, TipoAve } from '../types';
 
@@ -15,25 +16,60 @@ import { RegistroMortalidad, TipoAve } from '../types';
 import { usePonedorasStore } from './ponedorasStore';
 
 interface MortalityState {
-  // Estado
+  // Estado - ahora agrupado por tipo de ave
+  registrosPorTipo: Record<TipoAve, RegistroMortalidad[]>;
+  totalMortalidadPorTipo: Record<TipoAve, number>;
+  isLoadingPorTipo: Record<TipoAve, boolean>;
+  error: string | null;
+  
+  // Getters de conveniencia para compatibilidad
   registros: RegistroMortalidad[];
   totalMortalidad: number;
   isLoading: boolean;
-  error: string | null;
   
   // Acciones
   loadRegistrosMortalidad: (loteId?: string, tipoLote?: TipoAve) => Promise<void>;
   loadRegistrosPorTipo: (tipoLote: TipoAve) => Promise<void>;
+  suscribirseAMortalidadPorTipo: (tipoLote: TipoAve) => () => void;
   registrarNuevaMortalidad: (loteId: string, tipoLote: TipoAve, cantidad: number, causa?: string) => Promise<void>;
   clearError: () => void;
+  getRegistrosPorTipo: (tipoLote: TipoAve) => RegistroMortalidad[];
+  getTotalPorTipo: (tipoLote: TipoAve) => number;
 }
 
 export const useMortalityStore = create<MortalityState>((set, get) => ({
-  // Estado inicial
+  // Estado inicial agrupado por tipo
+  registrosPorTipo: {
+    [TipoAve.POLLO_ENGORDE]: [],
+    [TipoAve.POLLO_LEVANTE]: [],
+    [TipoAve.PONEDORA]: [],
+  },
+  totalMortalidadPorTipo: {
+    [TipoAve.POLLO_ENGORDE]: 0,
+    [TipoAve.POLLO_LEVANTE]: 0,
+    [TipoAve.PONEDORA]: 0,
+  },
+  isLoadingPorTipo: {
+    [TipoAve.POLLO_ENGORDE]: false,
+    [TipoAve.POLLO_LEVANTE]: false,
+    [TipoAve.PONEDORA]: false,
+  },
+  error: null,
+  
+  // Getters de compatibilidad (devuelven array vacío por defecto)
   registros: [],
   totalMortalidad: 0,
   isLoading: false,
-  error: null,
+  
+  // Getter para obtener registros por tipo
+  getRegistrosPorTipo: (tipoLote: TipoAve) => {
+    return get().registrosPorTipo[tipoLote] || [];
+  },
+  
+  // Getter para obtener total por tipo
+  getTotalPorTipo: (tipoLote: TipoAve) => {
+    return get().totalMortalidadPorTipo[tipoLote] || 0;
+  },
   
   // Cargar registros de mortalidad (legacy - mantener compatibilidad)
   loadRegistrosMortalidad: async (loteId?: string, tipoLote?: TipoAve) => {
@@ -89,6 +125,39 @@ export const useMortalityStore = create<MortalityState>((set, get) => ({
         error: error.message || 'Error al cargar registros de mortalidad' 
       });
     }
+  },
+
+  // Suscribirse a cambios en tiempo real por tipo de ave
+  suscribirseAMortalidadPorTipo: (tipoLote: TipoAve) => {
+    console.log('🔔 Suscribiéndose a mortalidad en tiempo real:', tipoLote);
+    
+    const unsubscribe = suscribirseAMortalidad(tipoLote, (registros) => {
+      const total = registros.reduce((sum, registro) => sum + registro.cantidad, 0);
+      
+      console.log(`🔔 Registros de mortalidad actualizados: ${registros.length} para ${tipoLote}`);
+      
+      // Actualizar solo los datos de este tipo específico
+      set(state => ({ 
+        registrosPorTipo: {
+          ...state.registrosPorTipo,
+          [tipoLote]: registros
+        },
+        totalMortalidadPorTipo: {
+          ...state.totalMortalidadPorTipo,
+          [tipoLote]: total
+        },
+        isLoadingPorTipo: {
+          ...state.isLoadingPorTipo,
+          [tipoLote]: false
+        },
+        // Actualizar también los valores legacy para compatibilidad
+        registros,
+        totalMortalidad: total,
+        isLoading: false
+      }));
+    });
+    
+    return unsubscribe;
   },
   
   // Registrar nueva mortalidad
