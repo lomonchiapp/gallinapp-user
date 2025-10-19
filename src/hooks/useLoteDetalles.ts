@@ -147,3 +147,8 @@ export const useLoteDetalles = <T extends LoteBase>({
 
 
 
+
+
+
+
+

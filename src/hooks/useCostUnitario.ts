@@ -66,3 +66,8 @@ export const useCostUnitario = (loteId: string, tipoLote: TipoAve, cantidadActua
 
 
 
+
+
+
+
+
