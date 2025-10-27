@@ -59,3 +59,5 @@ export const useVentasLote = (loteId: string | undefined, tipoAve: TipoAve) => {
 
 
 
+
+
