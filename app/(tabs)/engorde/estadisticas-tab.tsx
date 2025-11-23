@@ -109,6 +109,7 @@ export default function EstadisticasTab() {
 
     const lotesActivos = lotes.filter(lote => lote.estado === EstadoLote.ACTIVO);
     const totalPollos = lotesActivos.reduce((sum, lote) => sum + lote.cantidadActual, 0);
+    const totalPollosInicial = lotesActivos.reduce((sum, lote) => sum + lote.cantidadInicial, 0); // Para CPU
     const totalMuertes = 0; // TODO: Implementar cuando tengamos estadísticas de mortalidad
     
     // Calcular edad promedio en semanas
@@ -125,6 +126,7 @@ export default function EstadisticasTab() {
       totalLotes: lotes.length,
       lotesActivos: lotesActivos.length,
       totalPollos,
+      totalPollosInicial, // Para cálculo de CPU
       totalMuertes,
       edadPromedio,
       tasaMortalidad,
@@ -385,6 +387,7 @@ export default function EstadisticasTab() {
           <View style={styles.cpuContainer}>
             <CostUnitarioBadge
               costoTotal={estadisticasGastos.gastoTotal}
+              cantidadInicial={estadisticasGenerales.totalPollosInicial}
               cantidadActual={estadisticasGenerales.pollosVivos}
               loteId="general"
               tipoLote="POLLO_ENGORDE"

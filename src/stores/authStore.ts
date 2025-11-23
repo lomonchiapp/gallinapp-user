@@ -1,9 +1,12 @@
 /**
  * Store para la autenticación usando Zustand con persistencia AsyncStorage
+ * 
+ * IMPORTANTE: Este store ahora depende directamente de Firebase Auth state.
+ * Firebase Auth maneja la persistencia automáticamente con AsyncStorage.
  */
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { onAuthStateChanged } from 'firebase/auth';
+import { onAuthStateChanged, User } from 'firebase/auth';
 import { create } from 'zustand';
 import { createJSONStorage, persist } from 'zustand/middleware';
 import { auth } from '../components/config/firebase';
@@ -22,243 +25,209 @@ interface AuthState {
   isLoading: boolean;
   error: string | null;
   isAuthenticated: boolean;
-  hasHydrated: boolean; // Nuevo: indica si el store ha cargado desde AsyncStorage
+  authInitialized: boolean; // Indica si Firebase Auth ya inicializó
   
   // Acciones
   login: (email: string, password: string) => Promise<void>;
   register: (email: string, password: string, displayName: string, role?: UserRole) => Promise<void>;
   logout: () => Promise<void>;
   resetPassword: (email: string) => Promise<void>;
-  loadUser: () => Promise<void>;
   clearError: () => void;
-  clearPersistedData: () => void;
-  setHasHydrated: (value: boolean) => void; // Nuevo
-  initializeAuthListener: () => () => void; // Nuevo: Firebase Auth Listener
+  initializeAuthState: () => () => void; // Inicializar listener de Firebase Auth
 }
 
 export const useAuthStore = create<AuthState>()(
   persist(
     (set, get) => ({
       user: null,
-      isLoading: true, // Cambiado: inicia en true hasta que se hidrate
+      isLoading: true,
       error: null,
       isAuthenticated: false,
-      hasHydrated: false, // Nuevo
+      authInitialized: false,
   
-  login: async (email: string, password: string) => {
-    console.log('🏪 AuthStore: Iniciando login...');
-    set({ isLoading: true, error: null });
-    try {
-      const user = await loginUser(email, password);
-      console.log('🏪 AuthStore: Login exitoso, actualizando estado:', user);
-      set({ user, isLoading: false, isAuthenticated: true });
-      console.log('🏪 AuthStore: Estado actualizado correctamente');
-    } catch (error: any) {
-      console.error('🏪 AuthStore: Error en login:', error);
-      set({ 
-        isLoading: false, 
-        error: error.message || 'Error al iniciar sesión',
-        isAuthenticated: false 
-      });
-    }
-  },
-  
-  register: async (email: string, password: string, displayName: string, role = UserRole.OPERADOR) => {
-    set({ isLoading: true, error: null });
-    try {
-      const user = await registerUser(email, password, displayName, role);
-      set({ user, isLoading: false, isAuthenticated: true });
-    } catch (error: any) {
-      set({ 
-        isLoading: false, 
-        error: error.message || 'Error al registrar usuario',
-        isAuthenticated: false 
-      });
-    }
-  },
-  
-  logout: async () => {
-    set({ isLoading: true });
-    try {
-      await logoutUser();
-      // Limpiar también los datos persistentes
-      set({ user: null, isLoading: false, isAuthenticated: false, error: null });
-    } catch (error: any) {
-      set({
-        isLoading: false,
-        error: error.message || 'Error al cerrar sesión'
-      });
-    }
-  },
-  
-  resetPassword: async (email: string) => {
-    set({ isLoading: true, error: null });
-    try {
-      await resetPassword(email);
-      set({ isLoading: false });
-    } catch (error: any) {
-      set({ 
-        isLoading: false, 
-        error: error.message || 'Error al restablecer contraseña' 
-      });
-    }
-  },
-  
-  loadUser: async () => {
-    console.log('🏪 AuthStore: Cargando usuario...');
-    
-    // No procesar hasta que el store esté hidratado
-    const state = get();
-    if (!state.hasHydrated) {
-      console.log('⏳ AuthStore: Esperando hidratación...');
-      return;
-    }
-    
-    // Primero revisar si ya tenemos usuario persistido
-    const persistedUser = state.user;
-    const persistedIsAuthenticated = state.isAuthenticated;
-    
-    if (persistedUser && persistedIsAuthenticated) {
-      console.log('✅ Usuario persistido encontrado:', persistedUser.email);
-      // Validar con Firebase en segundo plano
-      getCurrentUser().then((user) => {
-        if (user) {
-          console.log('✅ Usuario validado con Firebase');
-          // Actualizar con datos frescos de Firebase
-          set({
-            user,
-            isLoading: false,
-            isAuthenticated: true
+      login: async (email: string, password: string) => {
+        console.log('🏪 AuthStore: Iniciando login...');
+        set({ isLoading: true, error: null });
+        try {
+          const user = await loginUser(email, password);
+          console.log('🏪 AuthStore: Login exitoso');
+          
+          // Firebase Auth ya actualizó el estado, solo actualizamos nuestro store
+          set({ 
+            user, 
+            isLoading: false, 
+            isAuthenticated: true,
+            error: null
           });
-        } else {
-          console.warn('⚠️ Usuario persistido pero no en Firebase - limpiando sesión');
-          set({
-            user: null,
-            isLoading: false,
-            isAuthenticated: false
+        } catch (error: any) {
+          console.error('🏪 AuthStore: Error en login:', error);
+          set({ 
+            isLoading: false, 
+            error: error.message || 'Error al iniciar sesión',
+            isAuthenticated: false 
           });
         }
-      }).catch((error) => {
-        console.error('❌ Error validando usuario:', error);
-        set({
-          user: null,
-          isLoading: false,
-          isAuthenticated: false
-        });
-      });
-      
-      // Mientras tanto, mostrar datos persistidos
-      set({ isLoading: false });
-      return;
-    }
-    
-    // Si no hay datos persistidos, intentar obtener de Firebase
-    set({ isLoading: true });
-    try {
-      const user = await getCurrentUser();
-      console.log('🏪 AuthStore: Usuario cargado desde Firebase:', user);
-
-      if (user) {
-        set({
-          user,
-          isLoading: false,
-          isAuthenticated: true
-        });
-      } else {
-        set({
-          user: null,
-          isLoading: false,
-          isAuthenticated: false
-        });
-      }
-
-      console.log('🏪 AuthStore: Estado de carga actualizado, isAuthenticated:', !!user);
-    } catch (error: any) {
-      console.error('🏪 AuthStore: Error al cargar usuario:', error);
-      set({
-        user: null,
-        isLoading: false,
-        error: error.message || 'Error al cargar usuario',
-        isAuthenticated: false
-      });
-    }
-  },
+      },
+  
+      register: async (email: string, password: string, displayName: string, role = UserRole.OPERADOR) => {
+        set({ isLoading: true, error: null });
+        try {
+          const user = await registerUser(email, password, displayName, role);
+          set({ 
+            user, 
+            isLoading: false, 
+            isAuthenticated: true,
+            error: null
+          });
+        } catch (error: any) {
+          set({ 
+            isLoading: false, 
+            error: error.message || 'Error al registrar usuario',
+            isAuthenticated: false 
+          });
+        }
+      },
+  
+      logout: async () => {
+        set({ isLoading: true });
+        try {
+          await logoutUser();
+          // Firebase Auth ya actualizó el estado, solo limpiamos nuestro store
+          set({ 
+            user: null, 
+            isLoading: false, 
+            isAuthenticated: false, 
+            error: null 
+          });
+        } catch (error: any) {
+          set({
+            isLoading: false,
+            error: error.message || 'Error al cerrar sesión'
+          });
+        }
+      },
+  
+      resetPassword: async (email: string) => {
+        set({ isLoading: true, error: null });
+        try {
+          await resetPassword(email);
+          set({ isLoading: false });
+        } catch (error: any) {
+          set({ 
+            isLoading: false, 
+            error: error.message || 'Error al restablecer contraseña' 
+          });
+        }
+      },
   
       clearError: () => set({ error: null }),
 
-      clearPersistedData: () => {
-        console.log('🏪 AuthStore: Limpiando datos persistentes...');
-        set({ user: null, isAuthenticated: false, error: null });
-      },
+      /**
+       * Inicializar listener de Firebase Auth
+       * Este listener se ejecuta cuando:
+       * 1. La app inicia (Firebase Auth restaura la sesión desde AsyncStorage)
+       * 2. El usuario hace login
+       * 3. El usuario hace logout
+       * 4. El token expira
+       */
+      initializeAuthState: () => {
+        console.log('🔄 AuthStore: Inicializando listener de Firebase Auth...');
+        
+        // Verificar si ya hay un usuario autenticado (sesión persistida)
+        const currentUser = auth.currentUser;
+        if (currentUser) {
+          console.log('✅ AuthStore: Usuario encontrado en Firebase Auth:', currentUser.email);
+          // Cargar datos del usuario desde Firestore
+          getCurrentUser().then((appUser) => {
+            if (appUser) {
+              set({ 
+                user: appUser,
+                isAuthenticated: true,
+                isLoading: false,
+                authInitialized: true,
+                error: null
+              });
+            } else {
+              set({ 
+                user: null,
+                isAuthenticated: false,
+                isLoading: false,
+                authInitialized: true,
+                error: null
+              });
+            }
+          }).catch((error) => {
+            console.error('❌ Error al cargar usuario:', error);
+            set({ 
+              user: null,
+              isAuthenticated: false,
+              isLoading: false,
+              authInitialized: true,
+              error: null
+            });
+          });
+        } else {
+          console.log('🚪 AuthStore: No hay usuario autenticado');
+          set({ 
+            user: null,
+            isAuthenticated: false,
+            isLoading: false,
+            authInitialized: true,
+            error: null
+          });
+        }
 
-      setHasHydrated: (value: boolean) => {
-        set({ hasHydrated: value });
-      },
-
-      // Firebase Auth Listener
-      initializeAuthListener: () => {
-        const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
-          const state = get();
-          
-          // No procesar cambios hasta que el store esté hidratado
-          if (!state.hasHydrated) {
-            console.log('⏳ AuthListener: Esperando hidratación...');
-            return;
-          }
-
+        // Suscribirse a cambios en el estado de autenticación
+        const unsubscribe = onAuthStateChanged(auth, async (firebaseUser: User | null) => {
           console.log('🔥 Firebase Auth State Changed:', {
             hasUser: !!firebaseUser,
             userEmail: firebaseUser?.email,
-            currentAuthState: state.isAuthenticated
+            currentAuthState: get().isAuthenticated
           });
 
           if (firebaseUser) {
-            // Usuario autenticado en Firebase
+            // Usuario autenticado
             try {
-              // Solo actualizar si no tenemos el usuario o es diferente
-              if (!state.user || state.user.uid !== firebaseUser.uid) {
-                console.log('🔄 AuthListener: Cargando usuario desde Firebase...');
-                const user = await getCurrentUser();
-                
-                if (user) {
-                  console.log('✅ AuthListener: Usuario cargado exitosamente');
-                  set({ 
-                    user, 
-                    isAuthenticated: true, 
-                    isLoading: false,
-                    error: null
-                  });
-                } else {
-                  // Usuario existe en Firebase pero no en nuestro sistema
-                  console.warn('⚠️ AuthListener: Usuario no encontrado en nuestro sistema');
-                  set({ 
-                    user: null, 
-                    isAuthenticated: false, 
-                    isLoading: false,
-                    error: 'Usuario no registrado en el sistema'
-                  });
-                }
+              console.log('✅ AuthStore: Usuario autenticado, cargando datos...');
+              const appUser = await getCurrentUser();
+              
+              if (appUser) {
+                set({ 
+                  user: appUser,
+                  isAuthenticated: true,
+                  isLoading: false,
+                  authInitialized: true,
+                  error: null
+                });
+                console.log('✅ AuthStore: Usuario cargado exitosamente');
               } else {
-                // Usuario ya está cargado, solo actualizar loading
-                console.log('✅ AuthListener: Usuario ya cargado');
-                set({ isLoading: false });
+                console.warn('⚠️ AuthStore: Usuario de Firebase Auth no encontrado en Firestore');
+                set({ 
+                  user: null,
+                  isAuthenticated: false,
+                  isLoading: false,
+                  authInitialized: true,
+                  error: 'Usuario no encontrado en el sistema'
+                });
               }
             } catch (error) {
-              console.error('❌ AuthListener: Error al cargar usuario:', error);
+              console.error('❌ AuthStore: Error al cargar usuario:', error);
               set({ 
-                user: null, 
-                isAuthenticated: false, 
+                user: null,
+                isAuthenticated: false,
                 isLoading: false,
+                authInitialized: true,
                 error: 'Error al cargar los datos del usuario'
               });
             }
           } else {
-            // No hay usuario autenticado
-            console.log('🚪 AuthListener: Usuario cerrado sesión');
+            // Usuario no autenticado
+            console.log('🚪 AuthStore: Usuario cerrado sesión');
             set({ 
-              user: null, 
-              isAuthenticated: false, 
+              user: null,
+              isAuthenticated: false,
               isLoading: false,
+              authInitialized: true,
               error: null
             });
           }
@@ -269,46 +238,25 @@ export const useAuthStore = create<AuthState>()(
     }),
     {
       name: 'auth-storage',
-      version: 2,
+      version: 3, // Incrementar versión para migración
       storage: createJSONStorage(() => AsyncStorage),
-      // Configuración para mejorar la hidratación
-      onRehydrateStorage: (state) => {
-        console.log('🔄 [AuthStore] Iniciando hidratación desde AsyncStorage...');
-        return (state, error) => {
-          if (error) {
-            console.error('❌ [AuthStore] Error durante la hidratación:', error);
-          } else {
-            console.log('✅ [AuthStore] Hidratación completada:', {
-              hasUser: !!state?.user,
-              isAuthenticated: state?.isAuthenticated,
-              userEmail: state?.user?.email
-            });
-          }
-          // Marcar como hidratado
-          state?.setHasHydrated(true);
-        };
-      },
-      // Configurar qué propiedades persistir
+      // Solo persistir datos básicos, no el estado de carga
       partialize: (state) => ({
         user: state.user,
         isAuthenticated: state.isAuthenticated,
-        // No persistir isLoading, error, ni hasHydrated
+        // No persistir isLoading, error, ni authInitialized
       }),
-      migrate: (persistedState: any) => {
-        try {
-          const state = persistedState as AuthState;
-          if (state?.user && state.user.lastLogin) {
-            const last = state.user.lastLogin as unknown as string;
-            if (typeof last === 'string') {
-              state.user = { ...state.user, lastLogin: new Date(last) };
-            }
-          }
-          return state;
-        } catch {
-          return persistedState as AuthState;
+      // Migración de versiones anteriores
+      migrate: (persistedState: any, version) => {
+        if (version < 3) {
+          // Limpiar datos antiguos si es necesario
+          return {
+            user: persistedState?.user || null,
+            isAuthenticated: persistedState?.isAuthenticated || false,
+          };
         }
+        return persistedState;
       },
     }
   )
 );
-

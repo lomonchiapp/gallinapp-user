@@ -2,7 +2,7 @@
  * Tab de Lotes de Pollos de Engorde
  */
 
-import { EstadoLote } from '@/src/types/enums';
+import { EstadoLote, TipoAve } from '@/src/types/enums';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import React, { useEffect, useMemo, useState } from 'react';
@@ -11,6 +11,7 @@ import Button from '../../../src/components/ui/Button';
 import Card from '../../../src/components/ui/Card';
 import CostUnitarioBadge from '../../../src/components/ui/CostUnitarioBadge';
 import GastoSheet from '../../../src/components/ui/GastoSheet';
+import AccionesLoteMenu, { AccionLote } from '../../../src/components/ui/AccionesLoteMenu';
 import { colors } from '../../../src/constants/colors';
 import { useGalpones } from '../../../src/hooks/useGalpones';
 import { useGastosSubscription } from '../../../src/hooks/useGastosSubscription';
@@ -19,7 +20,6 @@ import { useArticulosStore } from '../../../src/stores/articulosStore';
 import { useEngordeStore } from '../../../src/stores/engordeStore';
 import { useMortalityStore } from '../../../src/stores/mortalityStore';
 import { usePesoStore } from '../../../src/stores/pesoStore';
-import { TipoAve } from '../../../src/types';
 
 export default function LotesTab() {
   console.log('🐔 LotesTab Engorde: Componente renderizado');
@@ -34,8 +34,11 @@ export default function LotesTab() {
     id: string;
     nombre: string;
   } | null>(null);
+  const [loteExpandido, setLoteExpandido] = useState<string | null>(null);
+  const [menuAccionesVisible, setMenuAccionesVisible] = useState(false);
+  const [loteParaAcciones, setLoteParaAcciones] = useState<any>(null);
   
-  const { lotes, cargarLotes, suscribirseAEngorde } = useEngordeStore();
+  const { lotes, cargarLotes, suscribirseAEngorde, isLoading: isLoadingLotes } = useEngordeStore();
   const { articulos, loadArticulos } = useArticulosStore();
   const { suscribirseAMortalidadPorTipo, getRegistrosPorTipo } = useMortalityStore();
   const registrosMortalidad = getRegistrosPorTipo(TipoAve.POLLO_ENGORDE);
@@ -99,7 +102,8 @@ export default function LotesTab() {
             // Sumar el costo inicial del lote + gastos adicionales
             const costoInicial = lote.costo || 0;
             const costoTotal = costoInicial + gastosAdicionales;
-            const costoUnitario = lote.cantidadActual > 0 ? costoTotal / lote.cantidadActual : 0;
+            // CPU se calcula con cantidadInicial, no cantidadActual (no debe cambiar al vender aves)
+            const costoUnitario = lote.cantidadInicial > 0 ? costoTotal / lote.cantidadInicial : 0;
             
             console.log(`💰 Lote ${lote.id} (${lote.nombre}):`, {
               costoInicial,
@@ -236,6 +240,8 @@ export default function LotesTab() {
   };
 
   // Función para calcular edad en días
+  // Los días se calculan basándose en medianoche (00:00), no en 24 horas exactas.
+  // Ejemplo: Si se crea a las 10:00 PM del día 1, cumple 1 día a las 00:00 del día 2.
   const calcularEdadEnDias = (fechaNacimiento: any) => {
     try {
       let fecha: Date;
@@ -260,9 +266,20 @@ export default function LotesTab() {
         return 0;
       }
       
+      // Establecer ambas fechas a medianoche (00:00:00.000)
+      const fechaMidnight = new Date(fecha);
+      fechaMidnight.setHours(0, 0, 0, 0);
+      
       const ahora = new Date();
-      const diferenciaMs = ahora.getTime() - fecha.getTime();
+      const ahoraMidnight = new Date(ahora);
+      ahoraMidnight.setHours(0, 0, 0, 0);
+      
+      // Calcular diferencia en milisegundos
+      const diferenciaMs = ahoraMidnight.getTime() - fechaMidnight.getTime();
+      
+      // Convertir a días (redondear hacia abajo)
       const dias = Math.floor(diferenciaMs / (1000 * 60 * 60 * 24));
+      
       return Math.max(0, dias); // No permitir valores negativos
     } catch (error) {
       console.error('Error calculando edad en días:', error, fechaNacimiento);
@@ -390,6 +407,48 @@ export default function LotesTab() {
     router.push(`/(tabs)/engorde/detalles/${loteId}` as any);
   };
 
+  const toggleLoteExpandido = (loteId: string) => {
+    setLoteExpandido(loteId === loteExpandido ? null : loteId);
+  };
+
+  const handleAbrirMenuAcciones = (lote: any) => {
+    setLoteParaAcciones(lote);
+    setMenuAccionesVisible(true);
+  };
+
+  const getAccionesParaLote = (lote: any): AccionLote[] => {
+    return [
+      {
+        id: 'registrar-muerte',
+        label: 'Registrar Muerte',
+        icon: 'skull-outline',
+        onPress: () => router.push(`/engorde/registrar-muerte?loteId=${lote.id}`),
+        variant: 'default',
+      },
+      {
+        id: 'registrar-peso',
+        label: 'Registrar Peso',
+        icon: 'scale-outline',
+        onPress: () => router.push(`/(tabs)/engorde/registrar-peso?loteId=${lote.id}`),
+        variant: 'primary',
+      },
+      {
+        id: 'registrar-gasto',
+        label: 'Registrar Gasto',
+        icon: 'receipt-outline',
+        onPress: () => handleRegistrarGasto(lote),
+        variant: 'default',
+      },
+      {
+        id: 'ver-detalles',
+        label: 'Ver Detalles',
+        icon: 'information-circle-outline',
+        onPress: () => handleVerLote(lote.id),
+        variant: 'primary',
+      },
+    ];
+  };
+
   // Obtener información de pesaje para un lote específico
   const getWeightInfoForLote = (loteId: string) => {
     return weightTracking.find(w => w.loteId === loteId);
@@ -410,8 +469,8 @@ export default function LotesTab() {
     }
   };
 
-  // Estado de carga inicial
-  const isInitialLoading = !lotes || lotes.length === 0;
+  // Estado de carga inicial - mostrar skeleton solo si está cargando Y no hay lotes
+  const isInitialLoading = isLoadingLotes && (!lotes || lotes.length === 0);
 
   return (
     <ScrollView 
@@ -623,6 +682,7 @@ export default function LotesTab() {
 
             const badgeColors = galpon ? LOCATION_COLORS : LOCATION_COLORS_EMPTY;
             const badgeLabel = galpon ? galpon.nombre : 'Sin galpón';
+            const estaExpandido = loteExpandido === lote.id;
 
             return (
               <Card key={`${lote.id}-${index}`} style={StyleSheet.flatten([
@@ -630,130 +690,125 @@ export default function LotesTab() {
                 weightInfo?.estadoPesaje === 'emergencia' && styles.emergencyCard,
                 weightInfo?.estadoPesaje === 'advertencia' && styles.warningCard
               ])}>
-                <View style={styles.loteHeader}>
-                  <View style={styles.loteInfoContainer}>
-                    <Text style={styles.loteName}>{lote.nombre}</Text>
-                    <Text style={styles.loteDate}>
-                      Inicio: {formatearFecha(lote.fechaInicio)}
-                    </Text>
-                    <View style={[styles.locationBadge, { backgroundColor: badgeColors.badgeBg }]}>
-                      <Ionicons name={galpon ? 'location' : 'home-outline'} size={14} color={badgeColors.badgeText} />
-                      <Text style={[styles.locationText, { color: badgeColors.badgeText }]}>{badgeLabel}</Text>
-                    </View>
-                    {/* Siempre mostrar el CPU, nunca ocultarlo */}
-                    <CostUnitarioBadge
-                      costoTotal={costoUnitario * lote.cantidadActual}
-                      cantidadActual={lote.cantidadActual}
-                      loteId={lote.id}
-                      tipoLote="POLLO_ENGORDE"
-                      size="small"
-                      style={styles.costBadge}
-                    />
-                    {/* Indicador de pesaje */}
-                    {weightInfo && (
-                      <View style={styles.weightIndicatorContainer}>
-                        <Ionicons 
-                          name={
-                            weightInfo.estadoPesaje === 'emergencia' ? 'warning' :
-                            weightInfo.estadoPesaje === 'advertencia' ? 'time' :
-                            'checkmark-circle'
-                          }
-                          size={14}
-                          color={
-                            weightInfo.estadoPesaje === 'emergencia' ? colors.danger :
-                            weightInfo.estadoPesaje === 'advertencia' ? colors.warning :
-                            colors.success
-                          }
-                        />
-                        <Text style={[
-                          styles.weightIndicatorText,
-                          {
-                            color: 
+                <TouchableOpacity
+                  activeOpacity={0.7}
+                  onPress={() => toggleLoteExpandido(lote.id)}
+                  style={styles.loteHeaderTouchable}
+                >
+                  <View style={styles.loteHeader}>
+                    <View style={styles.loteInfoContainer}>
+                      <Text style={styles.loteName}>{lote.nombre}</Text>
+                      <Text style={styles.loteDate}>
+                        Inicio: {formatearFecha(lote.fechaInicio)}
+                      </Text>
+                      <View style={StyleSheet.flatten([styles.locationBadge, { backgroundColor: badgeColors.badgeBg }])}>
+                        <Ionicons name={galpon ? 'location' : 'home-outline'} size={14} color={badgeColors.badgeText} />
+                        <Text style={StyleSheet.flatten([styles.locationText, { color: badgeColors.badgeText }])}>{badgeLabel}</Text>
+                      </View>
+                      {/* Indicador de pesaje */}
+                      {weightInfo && (
+                        <View style={styles.weightIndicatorContainer}>
+                          <Ionicons 
+                            name={
+                              weightInfo.estadoPesaje === 'emergencia' ? 'warning' :
+                              weightInfo.estadoPesaje === 'advertencia' ? 'time' :
+                              'checkmark-circle'
+                            }
+                            size={14}
+                            color={
                               weightInfo.estadoPesaje === 'emergencia' ? colors.danger :
                               weightInfo.estadoPesaje === 'advertencia' ? colors.warning :
                               colors.success
-                          }
-                        ]}>
-                          {weightInfo.nuncanPesado ? 
-                            `Sin pesar (${weightInfo.diasSinPesar} días)` :
-                            weightInfo.diasSinPesar === 0 ? 
-                              'Pesado hoy' :
-                              weightInfo.diasSinPesar === 1 ?
-                                'Pesado ayer' :
-                                `Pesado hace ${weightInfo.diasSinPesar} días`
-                          }
+                            }
+                          />
+                          <Text style={[
+                            styles.weightIndicatorText,
+                            {
+                              color: 
+                                weightInfo.estadoPesaje === 'emergencia' ? colors.danger :
+                                weightInfo.estadoPesaje === 'advertencia' ? colors.warning :
+                                colors.success
+                            }
+                          ]}>
+                            {weightInfo.nuncanPesado ? 
+                              `Sin pesar (${weightInfo.diasSinPesar} días)` :
+                              weightInfo.diasSinPesar === 0 ? 
+                                'Pesado hoy' :
+                                weightInfo.diasSinPesar === 1 ?
+                                  'Pesado ayer' :
+                                  `Pesado hace ${weightInfo.diasSinPesar} días`
+                            }
+                          </Text>
+                        </View>
+                      )}
+                    </View>
+                    <View style={styles.loteHeaderRight}>
+                      <View style={[styles.statusBadge, lote.estado === EstadoLote.ACTIVO ? styles.activeStatus : styles.inactiveStatus]}>
+                        <Text style={[styles.statusText, { color: lote.estado === EstadoLote.ACTIVO ? colors.success : colors.textMedium }]}>
+                          {lote.estado === EstadoLote.ACTIVO ? 'Activo' : 'Finalizado'}
                         </Text>
                       </View>
-                    )}
+                      <CostUnitarioBadge
+                        costoTotal={costoUnitario * lote.cantidadInicial}
+                        cantidadInicial={lote.cantidadInicial}
+                        cantidadActual={lote.cantidadActual}
+                        loteId={lote.id}
+                        tipoLote="POLLO_ENGORDE"
+                        size="small"
+                        style={styles.costBadge}
+                      />
+                    </View>
                   </View>
-                <View style={styles.statusContainer}>
-                  <View style={[styles.statusBadge, lote.estado === EstadoLote.ACTIVO ? styles.activeStatus : styles.inactiveStatus]}>
-                    <Text style={[styles.statusText, { color: lote.estado === EstadoLote.ACTIVO ? colors.success : colors.textMedium }]}>
-                      {lote.estado === EstadoLote.ACTIVO ? 'Activo' : 'Finalizado'}
-                    </Text>
-                  </View>
-                  <Button 
-                    title="Editar" 
-                    onPress={() => router.push(`/engorde/editar-lote?loteId=${lote.id}` as any)} 
-                    variant="outline"
-                    size="small"
-                    style={styles.editButton}
+                  <Ionicons
+                    name={estaExpandido ? 'chevron-up' : 'chevron-down'}
+                    size={20}
+                    color={colors.textMedium}
+                    style={styles.expandIcon}
                   />
-                </View>
-              </View>
-              
-              <View style={styles.loteStats}>
-                <View style={styles.statItem}>
-                  <Text style={styles.statValue}>
-                    {lote.cantidadActual}
-                  </Text>
-                  <Text style={styles.statLabel}>Pollos Actuales</Text>
-                </View>
-                <View style={styles.statItem}>
-                  <Text style={styles.statValue}>
-                    {estadisticasMortalidad[lote.id] || 0}
-                  </Text>
-                  <Text style={styles.statLabel}>Muertes</Text>
-                </View>
-                
-                <View style={styles.statItem}>
-                  <Text style={styles.statValue}>
-                    {calcularEdadEnSemanas(lote.fechaNacimiento)} ({calcularEdadEnDias(lote.fechaNacimiento)}d)
-                  </Text>
-                  <Text style={styles.statLabel}>Semanas de Edad</Text>
-                </View>
-              </View>
-              
-              <View style={styles.loteActions}>
-                <Button 
-                  title="Registrar Muerte" 
-                  onPress={() => router.push(`/engorde/registrar-muerte?loteId=${lote.id}`)} 
-                  variant="outline"
-                  size="small"
-                  style={styles.actionButton}
-                />
-                <Button 
-                  title="Registrar Peso" 
-                  onPress={() => router.push(`/(tabs)/engorde/registrar-peso?loteId=${lote.id}`)} 
-                  size="small"
-                  style={styles.actionButton}
-                />
-                <Button 
-                  title="Registrar Gasto" 
-                  onPress={() => handleRegistrarGasto(lote)} 
-                  variant="outline"
-                  size="small"
-                  style={styles.actionButton}
-                />
-                <Button 
-                  title="Detalles" 
-                  onPress={() => handleVerLote(lote.id)} 
-                  variant="primary"
-                  size="small"
-                  style={styles.actionButton}
-                />
-              </View>
-            </Card>
+                </TouchableOpacity>
+
+                {estaExpandido && (
+                  <View style={styles.loteExpandedContent}>
+                    <View style={styles.loteStats}>
+                      <View style={styles.statItem}>
+                        <Text style={styles.statValue}>
+                          {lote.cantidadActual}
+                        </Text>
+                        <Text style={styles.statLabel}>Pollos Actuales</Text>
+                      </View>
+                      <View style={styles.statItem}>
+                        <Text style={styles.statValue}>
+                          {estadisticasMortalidad[lote.id] || 0}
+                        </Text>
+                        <Text style={styles.statLabel}>Muertes</Text>
+                      </View>
+                      <View style={styles.statItem}>
+                        <Text style={styles.statValue}>
+                          {calcularEdadEnSemanas(lote.fechaNacimiento)} ({calcularEdadEnDias(lote.fechaNacimiento)}d)
+                        </Text>
+                        <Text style={styles.statLabel}>Semanas de Edad</Text>
+                      </View>
+                    </View>
+                    
+                    <View style={styles.loteActions}>
+                      <Button 
+                        title="Editar" 
+                        onPress={() => router.push(`/engorde/editar-lote?loteId=${lote.id}` as any)} 
+                        variant="outline"
+                        size="small"
+                        style={styles.editButtonExpanded}
+                      />
+                      <Button 
+                        title="Acciones" 
+                        onPress={() => handleAbrirMenuAcciones(lote)} 
+                        variant="primary"
+                        size="small"
+                        style={styles.accionesButton}
+                      />
+                    </View>
+                  </View>
+                )}
+              </Card>
             );
           })}
         </View>
@@ -773,6 +828,19 @@ export default function LotesTab() {
             costoFijo: a.costoFijo, 
             precio: a.precio 
           }))}
+        />
+      )}
+
+      {/* Menú de acciones */}
+      {loteParaAcciones && (
+        <AccionesLoteMenu
+          visible={menuAccionesVisible}
+          onClose={() => {
+            setMenuAccionesVisible(false);
+            setLoteParaAcciones(null);
+          }}
+          acciones={getAccionesParaLote(loteParaAcciones)}
+          titulo={`Acciones - ${loteParaAcciones.nombre}`}
         />
       )}
       </>
@@ -962,6 +1030,7 @@ const styles = StyleSheet.create({
     marginBottom: 16,
     padding: 16,
     position: 'relative',
+    overflow: 'visible',
   },
   emergencyCard: {
     borderLeftWidth: 4,
@@ -973,20 +1042,36 @@ const styles = StyleSheet.create({
     borderLeftColor: colors.warning,
     backgroundColor: colors.warning + '05',
   },
+  loteHeaderTouchable: {
+    width: '100%',
+  },
   loteHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'flex-start',
-    marginBottom: 12,
   },
   loteInfoContainer: {
     flex: 1,
+    paddingRight: 12,
+  },
+  loteHeaderRight: {
+    alignItems: 'flex-end',
+    gap: 8,
+    minWidth: 100,
+  },
+  expandIcon: {
+    position: 'absolute',
+    bottom: 12,
+    right: 12,
+  },
+  loteExpandedContent: {
+    marginTop: 16,
+    paddingTop: 16,
+    borderTopWidth: 1,
+    borderTopColor: colors.veryLightGray,
   },
   costBadge: {
-    position: 'absolute',
-    top: 16,
-    right: 16,
-    zIndex: 10,
+    // El badge ahora está en loteHeaderRight, no necesita posición absoluta
   },
   loteName: {
     fontSize: 18,
@@ -1017,8 +1102,7 @@ const styles = StyleSheet.create({
   statusBadge: {
     paddingVertical: 4,
     paddingHorizontal: 8,
-    borderRadius: 4,
-    marginBottom: 8,
+    borderRadius: 12,
   },
   editButton: {
     minWidth: 60,
@@ -1054,11 +1138,18 @@ const styles = StyleSheet.create({
   loteActions: {
     flexDirection: 'row',
     justifyContent: 'flex-end',
-    flexWrap: 'wrap',
+    gap: 12,
+    marginTop: 12,
   },
   actionButton: {
     marginLeft: 8,
     marginBottom: 8,
+  },
+  editButtonExpanded: {
+    minWidth: 100,
+  },
+  accionesButton: {
+    minWidth: 120,
   },
   weightIndicatorContainer: {
     flexDirection: 'row',

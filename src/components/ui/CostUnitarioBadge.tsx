@@ -10,27 +10,29 @@ import CostUnitarioModal from './CostUnitarioModal';
 
 interface CostUnitarioBadgeProps {
   costoTotal: number;
-  cantidadActual: number;
+  cantidadInicial: number; // Cambiado de cantidadActual a cantidadInicial
   loteId: string;
   tipoLote: string;
   showIcon?: boolean;
   size?: 'small' | 'medium' | 'large';
   style?: any;
+  cantidadActual?: number; // Opcional para mostrar en el modal
 }
 
 export default function CostUnitarioBadge({
   costoTotal,
-  cantidadActual,
+  cantidadInicial,
   loteId,
   tipoLote,
   showIcon = true,
   size = 'medium',
-  style
+  style,
+  cantidadActual
 }: CostUnitarioBadgeProps) {
   const [modalVisible, setModalVisible] = useState(false);
 
-  // Calcular costo unitario
-  const costoUnitario = cantidadActual > 0 ? costoTotal / cantidadActual : 0;
+  // Calcular costo unitario usando cantidadInicial (no debe cambiar al vender aves)
+  const costoUnitario = cantidadInicial > 0 ? costoTotal / cantidadInicial : 0;
 
   // Formatear el precio
   const formatPrice = (price: number) => {
@@ -96,6 +98,7 @@ export default function CostUnitarioBadge({
         loteId={loteId}
         tipoLote={tipoLote}
         costoTotal={costoTotal}
+        cantidadInicial={cantidadInicial}
         cantidadActual={cantidadActual}
       />
     </>

@@ -961,12 +961,18 @@ function TabGastos({ lote, loteId, onRegistrarGasto }: { lote: LoteLevante; lote
             {gastosAdicionalesFiltrados.map((gasto) => (
               <Card key={gasto.id} style={styles.gastoCard}>
                 <View style={styles.gastoHeader}>
-                  <Text style={styles.gastoConcepto}>{gasto.articuloNombre}</Text>
+                  <View style={styles.gastoInfo}>
+                    <Text style={styles.gastoConcepto}>{gasto.articuloNombre}</Text>
+                    <Text style={styles.gastoFecha}>
+                      {formatDate(gasto.fecha)}
+                    </Text>
+                    {/* Mostrar cantidad y precio unitario */}
+                    <Text style={styles.gastoCantidadPrecio}>
+                      {gasto.cantidad} × RD${gasto.precioUnitario?.toFixed(2) || '0.00'}
+                    </Text>
+                  </View>
                   <Text style={styles.gastoMonto}>RD${gasto.total.toFixed(2)}</Text>
                 </View>
-                <Text style={styles.gastoFecha}>
-                  {formatDate(gasto.fecha)}
-                </Text>
                 {gasto.descripcion && (
                   <Text style={styles.gastoDescripcion}>{gasto.descripcion}</Text>
                 )}
@@ -994,8 +1000,8 @@ function TabVentas({
       <View style={styles.tabHeader}>
         <Text style={styles.tabTitle}>Registro de Ventas</Text>
         <Button
-          title="Nueva Factura"
-          onPress={() => router.push('/(tabs)/facturacion/nueva-factura')}
+          title="Nueva Venta"
+          onPress={() => router.push('/(tabs)/ventas/nueva')}
           size="small"
         />
       </View>
@@ -1644,14 +1650,16 @@ const styles = StyleSheet.create({
   gastoHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'center',
+    alignItems: 'flex-start',
     marginBottom: 4,
+  },
+  gastoInfo: {
+    flex: 1,
   },
   gastoConcepto: {
     fontSize: 16,
     fontWeight: 'bold',
     color: colors.textDark,
-    flex: 1,
   },
   gastoMonto: {
     fontSize: 16,
@@ -1661,7 +1669,13 @@ const styles = StyleSheet.create({
   gastoFecha: {
     fontSize: 14,
     color: colors.textMedium,
-    marginBottom: 4,
+    marginTop: 2,
+  },
+  gastoCantidadPrecio: {
+    fontSize: 13,
+    color: colors.textMedium,
+    marginTop: 2,
+    fontStyle: 'italic',
   },
   gastoDescripcion: {
     fontSize: 14,

@@ -4,7 +4,7 @@
  */
 
 import { useCallback, useEffect } from 'react';
-import { NotificationTemplates } from '../services/notifications.service';
+import { cleanupDuplicateNotifications, NotificationTemplates } from '../services/notifications.service';
 import { useAuthStore } from '../stores/authStore';
 import { useNotificationsStore } from '../stores/notificationsStore';
 import {
@@ -40,6 +40,10 @@ export const useNotifications = () => {
     
     const initializeNotifications = async () => {
       try {
+        // Ejecutar limpieza de duplicados al inicio
+        console.log('🧹 useNotifications: Iniciando limpieza de notificaciones duplicadas...');
+        await cleanupDuplicateNotifications();
+        
         await loadNotifications();
         await loadSettings();
         startRealtimeUpdates();
@@ -49,10 +53,21 @@ export const useNotifications = () => {
     };
 
     initializeNotifications();
+    
+    // Programar limpieza automática cada 24 horas
+    const cleanupInterval = setInterval(async () => {
+      try {
+        console.log('🧹 useNotifications: Limpieza automática programada de notificaciones...');
+        await cleanupDuplicateNotifications();
+      } catch (error) {
+        console.error('🔔 Error en limpieza automática:', error);
+      }
+    }, 24 * 60 * 60 * 1000); // 24 horas
 
     return () => {
       console.log('🔔 useNotifications: Limpiando para usuario no autenticado');
       stopRealtimeUpdates();
+      clearInterval(cleanupInterval);
     };
   }, [isAuthenticated, authLoading]);
 

@@ -101,14 +101,25 @@ export default function TabLayout() {
           }}
         />
         <Tabs.Screen
+          name="ventas"
+          options={{
+            headerShown: false,
+            title: 'Ventas',
+            tabBarIcon: ({ color, size }) => (
+              <Ionicons name="storefront-outline" size={size} color={color} />
+            ),
+            headerTitle: 'Sistema de Ventas',
+          }}
+        />
+        <Tabs.Screen
           name="facturacion"
           options={{
             headerShown: false,
-            title: 'Facturación',
+            title: 'Facturas',
             tabBarIcon: ({ color, size }) => (
               <Ionicons name="receipt" size={size} color={color} />
             ),
-            headerTitle: 'Sistema de Facturación',
+            headerTitle: 'Facturas y Comprobantes',
           }}
         />
         <Tabs.Screen

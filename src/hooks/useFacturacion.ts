@@ -5,10 +5,13 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Alert } from 'react-native';
 import { suscribirseALotesEngorde } from '../services/engorde.service';
-import { facturacionTransaccionalService, suscribirseAClientes, suscribirseAFacturas } from '../services/facturacion-transaccional.service';
 import { subscribeToLevantes } from '../services/levantes.service';
 import { subscribeToPonedoras } from '../services/ponedoras.service';
-import { productosInventarioSimplificadoService } from '../services/productos-inventario-simplificado.service';
+import { inventarioService } from '../services/inventario.service';
+import { ventasService } from '../services/ventas.service';
+import { facturasService } from '../services/facturas.service';
+import { configService } from '../services/config.service';
+import { useClientes } from './useClientes';
 import { LoteEngorde } from '../types/engorde/loteEngorde';
 import {
     Cliente,
@@ -18,6 +21,7 @@ import {
     Factura,
     Producto,
     ResumenVentas,
+    EstadoFactura,
 } from '../types/facturacion';
 import { LoteLevante } from '../types/levantes/loteLevante';
 import { LotePonedora } from '../types/ponedoras/lotePonedora';
@@ -60,9 +64,11 @@ export interface UseFacturacionReturn {
 }
 
 export const useFacturacion = (): UseFacturacionReturn => {
+  // Usar hook de clientes
+  const { clientes, crearCliente: crearClienteHook, actualizarCliente: actualizarClienteHook } = useClientes();
+  
   // Estados
   const [facturas, setFacturas] = useState<Factura[]>([]);
-  const [clientes, setClientes] = useState<Cliente[]>([]);
   const [productos, setProductos] = useState<Producto[]>([]);
   const [lotesPonedora, setLotesPonedora] = useState<LotePonedora[]>([]);
   const [lotesLevante, setLotesLevante] = useState<LoteLevante[]>([]);
@@ -79,15 +85,11 @@ export const useFacturacion = (): UseFacturacionReturn => {
     const unsubscribePonedoras = subscribeToPonedoras(setLotesPonedora);
     const unsubscribeLevantes = subscribeToLevantes(setLotesLevante);
     const unsubscribeEngorde = suscribirseALotesEngorde(setLotesEngorde);
-    const unsubscribeFacturas = suscribirseAFacturas(setFacturas);
-    const unsubscribeClientes = suscribirseAClientes(setClientes);
 
     return () => {
       unsubscribePonedoras();
       unsubscribeLevantes();
       unsubscribeEngorde();
-      unsubscribeFacturas();
-      unsubscribeClientes();
     };
   }, []);
 
@@ -98,24 +100,20 @@ export const useFacturacion = (): UseFacturacionReturn => {
 
       const [
         facturasData,
-        clientesData,
         productosData,
         configuracionData,
       ] = await Promise.all([
-        facturacionTransaccionalService.getFacturas(),
-        facturacionTransaccionalService.getClientes(),
-        productosInventarioSimplificadoService.generarProductosDesdeInventario(),
-        facturacionTransaccionalService.getConfiguracion(),
+        facturasService.getFacturas(),
+        inventarioService.getProductos(),
+        configService.getConfigAsync(),
       ]);
 
       setFacturas(facturasData);
-      setClientes(clientesData);
       setProductos(productosData);
       setConfiguracion(configuracionData);
       
       console.log('✅ Datos iniciales cargados:', {
         facturas: facturasData.length,
-        clientes: clientesData.length,
         productos: productosData.length,
       });
     } catch (err) {
@@ -128,14 +126,33 @@ export const useFacturacion = (): UseFacturacionReturn => {
   };
 
   // Métodos de facturación
+  // NOTA: Este método está deprecado. Usar useVentas.crearVenta() en su lugar
   const crearFactura = useCallback(async (datos: CrearFactura): Promise<Factura | null> => {
     try {
       setLoading(true);
       setError(null);
 
-      const { requireAuth } = await import('../services/auth.service');
-      const userId = requireAuth();
-      const nuevaFactura = await facturacionTransaccionalService.crearFactura(datos, userId);
+      console.warn('⚠️ [useFacturacion] crearFactura está deprecado. Usar useVentas.crearVenta() en su lugar');
+      
+      // Convertir CrearFactura a formato de venta
+      const venta = await ventasService.crearVenta({
+        cliente: datos.cliente,
+        items: datos.items.map(item => ({
+          id: item.id,
+          productoId: item.productoId,
+          producto: item.producto,
+          cantidad: item.cantidad,
+          precioUnitario: item.precioUnitario,
+          descuento: item.descuento,
+          subtotal: item.subtotal,
+          total: item.total,
+        })),
+        metodoPago: datos.metodoPago || 'efectivo',
+        observaciones: datos.observaciones,
+      });
+
+      // Generar factura automáticamente
+      const nuevaFactura = await facturasService.generarFactura({ ventaId: venta.id });
       setFacturas(prev => [nuevaFactura, ...prev]);
 
       // Actualizar productos disponibles después de la venta
@@ -160,17 +177,17 @@ export const useFacturacion = (): UseFacturacionReturn => {
       setLoading(true);
       setError(null);
 
-      // Por ahora solo soportamos actualización de estado
-      if (datos.estado) {
-        const facturaActualizada = await facturacionTransaccionalService.actualizarEstadoFactura(id, datos.estado);
+      // Por ahora solo soportamos anulación de factura
+      if (datos.estado === EstadoFactura.CANCELADA) {
+        const facturaAnulada = await facturasService.anularFactura(id);
         
         setFacturas(prev => 
-          prev.map(f => f.id === id ? facturaActualizada : f)
+          prev.map(f => f.id === id ? facturaAnulada : f)
         );
 
-        return facturaActualizada;
+        return facturaAnulada;
       } else {
-        throw new Error('Solo se puede actualizar el estado de la factura por ahora');
+        throw new Error('Solo se puede anular la factura. Para otros cambios, usar el servicio de facturas directamente.');
       }
     } catch (err) {
       const mensaje = err instanceof Error ? err.message : 'Error al actualizar factura';
@@ -184,7 +201,7 @@ export const useFacturacion = (): UseFacturacionReturn => {
 
   const obtenerFactura = useCallback(async (id: string): Promise<Factura | null> => {
     try {
-      const factura = await facturacionTransaccionalService.getFacturaPorId(id);
+      const factura = await facturasService.getFactura(id);
       return factura;
     } catch (err) {
       const mensaje = err instanceof Error ? err.message : 'Error al obtener factura';
@@ -193,56 +210,24 @@ export const useFacturacion = (): UseFacturacionReturn => {
     }
   }, []);
 
-  // Métodos de clientes
+  // Métodos de clientes (delegados al hook useClientes)
   const crearCliente = useCallback(async (datos: CrearCliente): Promise<Cliente | null> => {
-    try {
-      setLoading(true);
-      setError(null);
-
-      const nuevoCliente = await facturacionTransaccionalService.crearCliente(datos);
-      setClientes(prev => [...prev, nuevoCliente]);
-
-      return nuevoCliente;
-    } catch (err) {
-      const mensaje = err instanceof Error ? err.message : 'Error al crear cliente';
-      setError(mensaje);
-      Alert.alert('Error', mensaje);
-      return null;
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+    return await crearClienteHook(datos);
+  }, [crearClienteHook]);
 
   const actualizarCliente = useCallback(async (
     id: string, 
     datos: Partial<Cliente>
   ): Promise<Cliente | null> => {
-    try {
-      setLoading(true);
-      setError(null);
-
-      const clienteActualizado = await facturacionTransaccionalService.actualizarCliente(id, datos);
-      
-      setClientes(prev => 
-        prev.map(c => c.id === id ? clienteActualizado : c)
-      );
-
-      return clienteActualizado;
-    } catch (err) {
-      const mensaje = err instanceof Error ? err.message : 'Error al actualizar cliente';
-      setError(mensaje);
-      Alert.alert('Error', mensaje);
-      return null;
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+    await actualizarClienteHook(id, datos);
+    return clientes.find(c => c.id === id) || null;
+  }, [actualizarClienteHook, clientes]);
 
   // Métodos de productos
   const actualizarProductos = useCallback(async (): Promise<void> => {
     try {
       // Generar productos desde el inventario actual
-      const nuevosProductos = await productosInventarioSimplificadoService.generarProductosDesdeInventario();
+      const nuevosProductos = await inventarioService.getProductos(true); // forceRefresh = true
       setProductos(nuevosProductos);
     } catch (err) {
       const mensaje = err instanceof Error ? err.message : 'Error al actualizar productos';
@@ -260,8 +245,17 @@ export const useFacturacion = (): UseFacturacionReturn => {
       setLoading(true);
       setError(null);
 
-      const resumen = await facturacionTransaccionalService.generarResumenVentas(fechaInicio, fechaFin);
-      return resumen;
+      // TODO: Implementar generarResumenVentas en ventasService
+      // Por ahora retornar resumen vacío
+      console.warn('⚠️ [useFacturacion] generarResumenVentas no implementado aún en ventasService');
+      return {
+        periodo: { inicio: fechaInicio, fin: fechaFin },
+        totalFacturas: 0,
+        totalVentas: 0,
+        ventasPorTipo: {},
+        ventasPorAve: {},
+        clientesMasCompradores: [],
+      };
     } catch (err) {
       const mensaje = err instanceof Error ? err.message : 'Error al generar resumen';
       setError(mensaje);
@@ -279,8 +273,8 @@ export const useFacturacion = (): UseFacturacionReturn => {
       setLoading(true);
       setError(null);
 
-      await facturacionTransaccionalService.actualizarConfiguracion(config);
-      const nuevaConfiguracion = await facturacionTransaccionalService.getConfiguracion();
+      await configService.actualizarConfig(config);
+      const nuevaConfiguracion = await configService.getConfigAsync();
       setConfiguracion(nuevaConfiguracion);
     } catch (err) {
       const mensaje = err instanceof Error ? err.message : 'Error al actualizar configuración';

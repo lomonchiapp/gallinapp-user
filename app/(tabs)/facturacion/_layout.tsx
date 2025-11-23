@@ -20,51 +20,13 @@ export default function FacturacionLayout() {
       <Stack.Screen
         name="index"
         options={{
-          headerShown: true,
-          header: () => (
-            <AppHeader
-              title="Facturación"
-              showDrawer
-              tintColor={colors.primary}
-              rightContent={
-                <TouchableOpacity
-                  style={styles.headerAction}
-                  onPress={() => router.push('/facturacion/nueva-factura')}
-                  activeOpacity={0.8}
-                >
-                  <Ionicons name="add-circle" size={18} color={colors.white} />
-                  <Text style={styles.headerActionText}>Nueva factura</Text>
-                </TouchableOpacity>
-              }
-            />
-          ),
+          headerShown: false,
         }}
       />
       <Stack.Screen
-        name="nueva-factura"
+        name="[id]"
         options={{
-          presentation: 'modal',
-          headerShown: true,
-          header: () => (
-            <AppHeader
-              title="Nueva Factura"
-              showBack
-              tintColor={colors.primary}
-            />
-          ),
-        }}
-      />
-      <Stack.Screen
-        name="detalle/[id]"
-        options={{
-          headerShown: true,
-          header: () => (
-            <AppHeader
-              title="Detalle de Factura"
-              showBack
-              tintColor={colors.primary}
-            />
-          ),
+          headerShown: false,
         }}
       />
       <Stack.Screen

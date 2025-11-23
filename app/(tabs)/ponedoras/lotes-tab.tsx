@@ -11,6 +11,7 @@ import Button from '../../../src/components/ui/Button';
 import Card from '../../../src/components/ui/Card';
 import CostUnitarioBadge from '../../../src/components/ui/CostUnitarioBadge';
 import GastoSheet from '../../../src/components/ui/GastoSheet';
+import AccionesLoteMenu, { AccionLote } from '../../../src/components/ui/AccionesLoteMenu';
 import { colors } from '../../../src/constants/colors';
 import { useGalpones } from '../../../src/hooks/useGalpones';
 import { useGastosSubscription } from '../../../src/hooks/useGastosSubscription';
@@ -43,6 +44,9 @@ export default function LotesTab() {
     id: string;
     nombre: string;
   } | null>(null);
+  const [loteExpandido, setLoteExpandido] = useState<string | null>(null);
+  const [menuAccionesVisible, setMenuAccionesVisible] = useState(false);
+  const [loteParaAcciones, setLoteParaAcciones] = useState<any>(null);
   
   // Estado para tracking de recolección de huevos
   const [eggTracking, setEggTracking] = useState<EggTrackingInfo[]>([]);
@@ -95,7 +99,8 @@ export default function LotesTab() {
             // Sumar el costo inicial del lote + gastos adicionales
             const costoInicial = lote.costo || 0;
             const costoTotal = costoInicial + gastosAdicionales;
-            const costoUnitario = lote.cantidadActual > 0 ? costoTotal / lote.cantidadActual : 0;
+            // CPU se calcula con cantidadInicial, no cantidadActual (no debe cambiar al vender aves)
+            const costoUnitario = lote.cantidadInicial > 0 ? costoTotal / lote.cantidadInicial : 0;
             
             console.log(`💰 Lote ${lote.id} (${lote.nombre}):`, {
               costoInicial,
@@ -265,6 +270,48 @@ export default function LotesTab() {
 
   const handleVerLote = (loteId: string) => {
     router.push(`/ponedoras/detalles/${loteId}` as any);
+  };
+
+  const toggleLoteExpandido = (loteId: string) => {
+    setLoteExpandido(loteId === loteExpandido ? null : loteId);
+  };
+
+  const handleAbrirMenuAcciones = (lote: any) => {
+    setLoteParaAcciones(lote);
+    setMenuAccionesVisible(true);
+  };
+
+  const getAccionesParaLote = (lote: any): AccionLote[] => {
+    return [
+      {
+        id: 'registrar-muerte',
+        label: 'Registrar Muerte',
+        icon: 'skull-outline',
+        onPress: () => router.push(`/ponedoras/registrar-muerte?loteId=${lote.id}`),
+        variant: 'default',
+      },
+      {
+        id: 'registrar-produccion',
+        label: 'Registrar Producción',
+        icon: 'egg-outline',
+        onPress: () => router.push(`/ponedoras/registrar-produccion?loteId=${lote.id}`),
+        variant: 'primary',
+      },
+      {
+        id: 'registrar-gasto',
+        label: 'Registrar Gasto',
+        icon: 'receipt-outline',
+        onPress: () => handleRegistrarGasto(lote),
+        variant: 'default',
+      },
+      {
+        id: 'ver-detalles',
+        label: 'Ver Detalles',
+        icon: 'information-circle-outline',
+        onPress: () => handleVerLote(lote.id),
+        variant: 'primary',
+      },
+    ];
   };
 
   // Obtener información de recolección para un lote específico
@@ -505,6 +552,7 @@ export default function LotesTab() {
             const galpon = galpones.find((g) => g.id === lote.galponId);
             const badgeColors = galpon ? LOCATION_COLORS : LOCATION_COLORS_EMPTY;
             const badgeLabel = galpon ? galpon.nombre : 'Sin galpón';
+            const estaExpandido = loteExpandido === lote.id;
 
             return (
               <Card key={lote.id} style={StyleSheet.flatten([
@@ -512,127 +560,123 @@ export default function LotesTab() {
                 eggInfo?.estadoRecoleccion === 'emergencia' && styles.emergencyCard,
                 eggInfo?.estadoRecoleccion === 'advertencia' && styles.warningCard
               ])}>
-                <View style={styles.loteHeader}>
-                  <View style={styles.loteInfoContainer}>
-                    <Text style={styles.loteName}>{lote.nombre}</Text>
-                    <Text style={styles.loteDate}>
-                      Inicio: {formatDate(lote.fechaInicio)}
-                    </Text>
-                    {galpon && (
-                      <View style={StyleSheet.flatten([styles.locationBadge, { backgroundColor: badgeColors.badgeBg }])}>
-                        <Ionicons name={galpon ? 'location' : 'home-outline'} size={14} color={badgeColors.badgeText} />
-                        <Text style={StyleSheet.flatten([styles.locationText, { color: badgeColors.badgeText }])}>{badgeLabel}</Text>
-                      </View>
-                    )}
-                    {/* Siempre mostrar el CPU, nunca ocultarlo */}
-                    <CostUnitarioBadge
-                      costoTotal={costoUnitario * lote.cantidadActual}
-                      cantidadActual={lote.cantidadActual}
-                      loteId={lote.id}
-                      tipoLote="PONEDORA"
-                      size="small"
-                      style={styles.costBadge}
-                    />
-                    {/* Indicador de recolección de huevos */}
-                    {eggInfo && (
-                      <View style={styles.eggIndicatorContainer}>
-                        <Ionicons 
-                          name={
-                            eggInfo.estadoRecoleccion === 'emergencia' ? 'warning' :
-                            eggInfo.estadoRecoleccion === 'advertencia' ? 'time' :
-                            'checkmark-circle'
-                          }
-                          size={14}
-                          color={
-                            eggInfo.estadoRecoleccion === 'emergencia' ? colors.danger :
-                            eggInfo.estadoRecoleccion === 'advertencia' ? colors.warning :
-                            colors.success
-                          }
-                        />
-                        <Text style={[
-                          styles.eggIndicatorText,
-                          {
-                            color: 
+                <TouchableOpacity
+                  activeOpacity={0.7}
+                  onPress={() => toggleLoteExpandido(lote.id)}
+                  style={styles.loteHeaderTouchable}
+                >
+                  <View style={styles.loteHeader}>
+                    <View style={styles.loteInfoContainer}>
+                      <Text style={styles.loteName}>{lote.nombre}</Text>
+                      <Text style={styles.loteDate}>
+                        Inicio: {formatDate(lote.fechaInicio)}
+                      </Text>
+                      {galpon && (
+                        <View style={StyleSheet.flatten([styles.locationBadge, { backgroundColor: badgeColors.badgeBg }])}>
+                          <Ionicons name={galpon ? 'location' : 'home-outline'} size={14} color={badgeColors.badgeText} />
+                          <Text style={StyleSheet.flatten([styles.locationText, { color: badgeColors.badgeText }])}>{badgeLabel}</Text>
+                        </View>
+                      )}
+                      {/* Indicador de recolección de huevos */}
+                      {eggInfo && (
+                        <View style={styles.eggIndicatorContainer}>
+                          <Ionicons 
+                            name={
+                              eggInfo.estadoRecoleccion === 'emergencia' ? 'warning' :
+                              eggInfo.estadoRecoleccion === 'advertencia' ? 'time' :
+                              'checkmark-circle'
+                            }
+                            size={14}
+                            color={
                               eggInfo.estadoRecoleccion === 'emergencia' ? colors.danger :
                               eggInfo.estadoRecoleccion === 'advertencia' ? colors.warning :
                               colors.success
-                          }
-                        ]}>
-                          {eggInfo.nuncaRecolectado ? 
-                            `Sin recolección (${eggInfo.diasSinRecoleccion}d)` :
-                            `Última recolección: ${eggInfo.diasSinRecoleccion}d`
-                          }
+                            }
+                          />
+                          <Text style={[
+                            styles.eggIndicatorText,
+                            {
+                              color: 
+                                eggInfo.estadoRecoleccion === 'emergencia' ? colors.danger :
+                                eggInfo.estadoRecoleccion === 'advertencia' ? colors.warning :
+                                colors.success
+                            }
+                          ]}>
+                            {eggInfo.nuncaRecolectado ? 
+                              `Sin recolección (${eggInfo.diasSinRecoleccion}d)` :
+                              `Última recolección: ${eggInfo.diasSinRecoleccion}d`
+                            }
+                          </Text>
+                        </View>
+                      )}
+                    </View>
+                    <View style={styles.loteHeaderRight}>
+                      <View style={[styles.statusBadge, lote.estado === EstadoLote.ACTIVO ? styles.activeStatus : styles.inactiveStatus]}>
+                        <Text style={[styles.statusText, { color: lote.estado === EstadoLote.ACTIVO ? colors.success : colors.textMedium }]}>
+                          {lote.estado === EstadoLote.ACTIVO ? 'Activo' : 'Finalizado'}
                         </Text>
                       </View>
-                    )}
+                      <CostUnitarioBadge
+                        costoTotal={costoUnitario * lote.cantidadInicial}
+                        cantidadInicial={lote.cantidadInicial}
+                        cantidadActual={lote.cantidadActual}
+                        loteId={lote.id}
+                        tipoLote="PONEDORA"
+                        size="small"
+                        style={styles.costBadge}
+                      />
+                    </View>
                   </View>
-                <View style={styles.statusContainer}>
-                  <View style={[styles.statusBadge, lote.estado === EstadoLote.ACTIVO ? styles.activeStatus : styles.inactiveStatus]}>
-                    <Text style={[styles.statusText, { color: lote.estado === EstadoLote.ACTIVO ? colors.success : colors.textMedium }]}>
-                      {lote.estado === EstadoLote.ACTIVO ? 'Activo' : 'Finalizado'}
-                    </Text>
-                  </View>
-                  <Button 
-                    title="Editar" 
-                    onPress={() => router.push(`/ponedoras/editar-lote?loteId=${lote.id}` as any)} 
-                    variant="outline"
-                    size="small"
-                    style={styles.editButton}
+                  <Ionicons
+                    name={estaExpandido ? 'chevron-up' : 'chevron-down'}
+                    size={20}
+                    color={colors.textMedium}
+                    style={styles.expandIcon}
                   />
-                </View>
-              </View>
-              
-              <View style={styles.loteStats}>
-                <View style={styles.statItem}>
-                  <Text style={styles.statValue}>
-                    {lote.cantidadActual}
-                  </Text>
-                  <Text style={styles.statLabel}>Gallinas Actuales</Text>
-                </View>
-                <View style={styles.statItem}>
-                  <Text style={styles.statValue}>
-                    {estadisticasLotes[lote.id]?.huevos || 0}
-                  </Text>
-                  <Text style={styles.statLabel}>Huevos Totales</Text>
-                </View>
-                <View style={styles.statItem}>
-                  <Text style={styles.statValue}>
-                    {estadisticasLotes[lote.id]?.muertes || 0}
-                  </Text>
-                  <Text style={styles.statLabel}>Muertes</Text>
-                </View>
-              </View>
-              
-              <View style={styles.loteActions}>
-                <Button 
-                  title="Registrar Muerte" 
-                  onPress={() => router.push(`/ponedoras/registrar-muerte?loteId=${lote.id}`)} 
-                  variant="outline"
-                  size="small"
-                  style={styles.actionButton}
-                />
-                <Button 
-                  title="Registrar Producción" 
-                  onPress={() => router.push(`/ponedoras/registrar-produccion?loteId=${lote.id}`)} 
-                  size="small"
-                  style={styles.actionButton}
-                />
-                <Button 
-                  title="Registrar Gasto" 
-                  onPress={() => handleRegistrarGasto(lote)} 
-                  variant="outline"
-                  size="small"
-                  style={styles.actionButton}
-                />
-                <Button 
-                  title="Detalles" 
-                  onPress={() => handleVerLote(lote.id)} 
-                  variant="primary"
-                  size="small"
-                  style={styles.actionButton}
-                />
-              </View>
-            </Card>
+                </TouchableOpacity>
+
+                {estaExpandido && (
+                  <View style={styles.loteExpandedContent}>
+                    <View style={styles.loteStats}>
+                      <View style={styles.statItem}>
+                        <Text style={styles.statValue}>
+                          {lote.cantidadActual}
+                        </Text>
+                        <Text style={styles.statLabel}>Gallinas Actuales</Text>
+                      </View>
+                      <View style={styles.statItem}>
+                        <Text style={styles.statValue}>
+                          {estadisticasLotes[lote.id]?.huevos || 0}
+                        </Text>
+                        <Text style={styles.statLabel}>Huevos Totales</Text>
+                      </View>
+                      <View style={styles.statItem}>
+                        <Text style={styles.statValue}>
+                          {estadisticasLotes[lote.id]?.muertes || 0}
+                        </Text>
+                        <Text style={styles.statLabel}>Muertes</Text>
+                      </View>
+                    </View>
+                    
+                    <View style={styles.loteActions}>
+                      <Button 
+                        title="Editar" 
+                        onPress={() => router.push(`/ponedoras/editar-lote?loteId=${lote.id}` as any)} 
+                        variant="outline"
+                        size="small"
+                        style={styles.editButtonExpanded}
+                      />
+                      <Button 
+                        title="Acciones" 
+                        onPress={() => handleAbrirMenuAcciones(lote)} 
+                        variant="primary"
+                        size="small"
+                        style={styles.accionesButton}
+                      />
+                    </View>
+                  </View>
+                )}
+              </Card>
             );
           })}
         </View>
@@ -652,6 +696,19 @@ export default function LotesTab() {
             costoFijo: a.costoFijo, 
             precio: a.precio 
           }))}
+        />
+      )}
+
+      {/* Menú de acciones */}
+      {loteParaAcciones && (
+        <AccionesLoteMenu
+          visible={menuAccionesVisible}
+          onClose={() => {
+            setMenuAccionesVisible(false);
+            setLoteParaAcciones(null);
+          }}
+          acciones={getAccionesParaLote(loteParaAcciones)}
+          titulo={`Acciones - ${loteParaAcciones.nombre}`}
         />
       )}
       </>
@@ -837,6 +894,7 @@ const styles = StyleSheet.create({
     marginBottom: 16,
     padding: 16,
     position: 'relative',
+    overflow: 'visible',
   },
   emergencyCard: {
     borderLeftWidth: 4,
@@ -848,14 +906,33 @@ const styles = StyleSheet.create({
     borderLeftColor: colors.warning,
     backgroundColor: colors.warning + '05',
   },
+  loteHeaderTouchable: {
+    width: '100%',
+  },
   loteHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'flex-start',
-    marginBottom: 12,
   },
   loteInfoContainer: {
     flex: 1,
+    paddingRight: 12,
+  },
+  loteHeaderRight: {
+    alignItems: 'flex-end',
+    gap: 8,
+    minWidth: 100,
+  },
+  expandIcon: {
+    position: 'absolute',
+    bottom: 12,
+    right: 12,
+  },
+  loteExpandedContent: {
+    marginTop: 16,
+    paddingTop: 16,
+    borderTopWidth: 1,
+    borderTopColor: colors.veryLightGray,
   },
   locationBadge: {
     flexDirection: 'row',
@@ -872,10 +949,7 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   costBadge: {
-    position: 'absolute',
-    top: 16,
-    right: 16,
-    zIndex: 10,
+    // El badge ahora está en loteHeaderRight, no necesita posición absoluta
   },
   loteName: {
     fontSize: 18,
@@ -892,8 +966,7 @@ const styles = StyleSheet.create({
   statusBadge: {
     paddingVertical: 4,
     paddingHorizontal: 8,
-    borderRadius: 4,
-    marginBottom: 8,
+    borderRadius: 12,
   },
   editButton: {
     minWidth: 60,
@@ -929,11 +1002,18 @@ const styles = StyleSheet.create({
   loteActions: {
     flexDirection: 'row',
     justifyContent: 'flex-end',
-    flexWrap: 'wrap',
+    gap: 12,
+    marginTop: 12,
   },
   actionButton: {
     marginLeft: 8,
     marginBottom: 8,
+  },
+  editButtonExpanded: {
+    minWidth: 100,
+  },
+  accionesButton: {
+    minWidth: 120,
   },
   eggIndicatorContainer: {
     flexDirection: 'row',

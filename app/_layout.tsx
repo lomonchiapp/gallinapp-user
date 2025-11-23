@@ -18,7 +18,7 @@ function RootLayout() {
 
   return (
     <ThemeProvider value={colorScheme === 'dark' ? 'dark' : 'light'}>
-      <StatusBar style={colorScheme === 'dark' ? 'light' : 'dark'} />
+      <StatusBar style="dark" />
       <AuthGuard>
         <Drawer
           drawerContent={(props) => <CustomDrawerContent {...props} />}

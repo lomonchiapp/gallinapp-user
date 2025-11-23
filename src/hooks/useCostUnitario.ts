@@ -6,7 +6,7 @@ import { useEffect, useState } from 'react';
 import { calcularCostoProduccionUnitario } from '../services/gastos.service';
 import { TipoAve } from '../types/enums';
 
-export const useCostUnitario = (loteId: string, tipoLote: TipoAve, cantidadActual: number) => {
+export const useCostUnitario = (loteId: string, tipoLote: TipoAve, cantidadInicial: number) => {
   const [costoTotal, setCostoTotal] = useState(0);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -32,8 +32,8 @@ export const useCostUnitario = (loteId: string, tipoLote: TipoAve, cantidadActua
     loadCostoUnitario();
   }, [loteId, tipoLote]);
 
-  // Calcular costo unitario
-  const costoUnitario = cantidadActual > 0 ? costoTotal / cantidadActual : 0;
+  // Calcular costo unitario usando cantidadInicial (no debe cambiar al vender aves)
+  const costoUnitario = cantidadInicial > 0 ? costoTotal / cantidadInicial : 0;
 
   return {
     costoTotal,

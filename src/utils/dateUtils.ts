@@ -63,7 +63,18 @@ export const isValidDate = (value: any): boolean => {
 };
 
 /**
+ * Establece la hora de una fecha a medianoche (00:00:00.000)
+ */
+const setToMidnight = (date: Date): Date => {
+  const midnight = new Date(date);
+  midnight.setHours(0, 0, 0, 0);
+  return midnight;
+};
+
+/**
  * Calcula la diferencia en días entre dos fechas de forma segura
+ * Los días se calculan basándose en medianoche (00:00), no en 24 horas exactas.
+ * Ejemplo: Si se crea a las 10:00 PM del día 1, cumple 1 día a las 00:00 del día 2.
  */
 export const calculateDaysDifference = (startDate: any, endDate: any = new Date()): number => {
   try {
@@ -74,8 +85,17 @@ export const calculateDaysDifference = (startDate: any, endDate: any = new Date(
       return 0;
     }
     
-    const diffTime = end.getTime() - start.getTime();
-    return Math.floor(diffTime / (1000 * 60 * 60 * 24));
+    // Establecer ambas fechas a medianoche (00:00:00.000)
+    const startMidnight = setToMidnight(start);
+    const endMidnight = setToMidnight(end);
+    
+    // Calcular diferencia en milisegundos
+    const diffTime = endMidnight.getTime() - startMidnight.getTime();
+    
+    // Convertir a días (redondear hacia abajo)
+    const days = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+    
+    return Math.max(0, days); // No permitir valores negativos
   } catch (error) {
     console.warn('Error al calcular diferencia de días:', error);
     return 0;
@@ -84,6 +104,7 @@ export const calculateDaysDifference = (startDate: any, endDate: any = new Date(
 
 /**
  * Calcula la edad en días de forma segura
+ * Los días se calculan basándose en medianoche (00:00), no en 24 horas exactas.
  */
 export const calculateAgeInDays = (birthDate: any): number => {
   return calculateDaysDifference(birthDate, new Date());

@@ -8,6 +8,7 @@ export interface AppConfig {
     diasCrecimientoEngorde: number; // Días promedio de crecimiento para engorde
     pesoObjetivoEngorde: number; // Peso objetivo en libras para pollos de engorde
     tasaMortalidadAceptable: number; // Porcentaje de mortalidad aceptable
+    cantidadHuevosPorCaja: number; // Cantidad estándar de huevos por caja para ventas
     updatedAt: Date;
     updatedBy: string;
   }

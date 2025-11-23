@@ -13,6 +13,20 @@ export enum TipoProducto {
   HUEVOS = 'HUEVOS',
 }
 
+// Tipos de venta
+export enum TipoVenta {
+  LOTE_COMPLETO = 'LOTE_COMPLETO',
+  UNIDADES_AVES = 'UNIDADES_AVES',
+  UNIDADES_HUEVOS = 'UNIDADES_HUEVOS',
+  CAJAS_HUEVOS = 'CAJAS_HUEVOS',
+}
+
+// Unidad de venta para huevos
+export enum UnidadVentaHuevos {
+  UNIDADES = 'UNIDADES',
+  CAJAS = 'CAJAS',
+}
+
 // Información del producto base
 export interface ProductoBase {
   id: string;
@@ -53,6 +67,12 @@ export interface ProductoHuevos extends ProductoBase {
   tamano: string;
   calidad: string;
   fechaRecoleccion: Date;
+  // Nuevos campos para venta desde registros
+  registroId?: string; // ID del registro de producción (HuevoRegistro)
+  loteId: string; // ID del lote de ponedoras
+  unidadVenta: UnidadVentaHuevos; // UNIDADES o CAJAS
+  cantidadPorCaja?: number; // Cantidad de huevos por caja (si aplica)
+  registrosIds?: string[]; // IDs de los registros de producción que generan este producto
 }
 
 // Union type para todos los productos
@@ -133,8 +153,8 @@ export interface ConfiguracionFacturacion {
     formato: string; // Ej: "FAC-{numero}"
   };
   impuestos: {
-    iva: number;
-    retencion?: number;
+    iva: number; // Siempre 0 - sistema sin impuestos
+    retencion?: number; // Opcional, siempre 0 o undefined
   };
 }
 
@@ -168,6 +188,33 @@ export interface ResumenVentas {
     totalCompras: number;
     valorTotal: number;
   }[];
+}
+
+// Venta - Entidad separada de Factura (relación 1:1)
+export interface Venta {
+  id: string;
+  facturaId: string; // Referencia a la factura (1:1)
+  loteId?: string; // ID del lote (si aplica)
+  tipoVenta: TipoVenta; // Tipo de venta
+  // Información del producto vendido
+  productoId: string;
+  productoNombre: string;
+  cantidad: number;
+  precioUnitario: number;
+  descuento?: number;
+  subtotal: number;
+  total: number;
+  // Información del cliente
+  clienteId: string;
+  clienteNombre: string;
+  // Para ventas de huevos
+  registrosIds?: string[]; // IDs de registros de producción vendidos
+  unidadVenta?: UnidadVentaHuevos; // Para huevos: unidades o cajas
+  // Metadatos
+  fecha: Date;
+  createdBy: string;
+  createdAt: Date;
+  updatedAt: Date;
 }
 
 

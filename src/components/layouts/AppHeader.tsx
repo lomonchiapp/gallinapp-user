@@ -3,10 +3,13 @@
  */
 
 import { Ionicons } from '@expo/vector-icons';
+import { BlurView } from 'expo-blur';
 import { DrawerToggleButton } from '@react-navigation/drawer';
+import { StatusBar } from 'expo-status-bar';
 import { router } from 'expo-router';
 import React, { useEffect, useState } from 'react';
 import { ActivityIndicator, Image, Platform, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { colors } from '../../constants/colors';
 import { useNotifications } from '../../hooks/useNotifications';
 import { AlertSummary, getAlertSummaryFromStore } from '../../services/tracking-optimized.service';
@@ -26,6 +29,8 @@ interface AppHeaderProps {
   showLogo?: boolean;
   showNotifications?: boolean;
   tintColor?: string;
+  backgroundColor?: string | 'transparent';
+  statusBarStyle?: 'auto' | 'inverted' | 'light' | 'dark';
   onBackPress?: () => void;
   rightContent?: React.ReactNode;
   primaryAction?: HeaderAction;
@@ -49,6 +54,8 @@ export default function AppHeader({
   showLogo = false,
   showNotifications = true,
   tintColor = colors.primary,
+  backgroundColor = 'transparent',
+  statusBarStyle = 'dark',
   onBackPress,
   rightContent,
   primaryAction,
@@ -128,24 +135,46 @@ export default function AppHeader({
 
   // Solo mostrar notificaciones reales de Firebase, no las alertas de tracking
   const totalNotifications = isAuthenticated ? unreadCount : 0;
+  const insets = useSafeAreaInsets();
+  
   return (
-    <View style={styles.header}>
-      {/* Botón izquierdo (drawer o back) */}
-      {showDrawer && (
-        <DrawerToggleButton tintColor={tintColor} />
-      )}
-      
-      {showBack && (
-        <TouchableOpacity 
-          style={styles.backButton} 
-          onPress={onBackPress || (() => router.back())}
-        >
-          <Ionicons name="arrow-back" size={24} color={tintColor} />
-        </TouchableOpacity>
-      )}
-      
-      {/* Título o logo */}
-      <View style={styles.titleContainer}>
+    <>
+      <StatusBar style={statusBarStyle} />
+      <BlurView
+        intensity={80}
+        tint="light"
+        style={[
+          styles.headerContainer,
+          {
+            paddingTop: insets.top,
+          }
+        ]}
+      >
+        <View style={[
+          styles.header,
+          {
+            backgroundColor: 'rgba(255, 255, 255, 0.1)',
+          }
+        ]}>
+          {/* Botón izquierdo (drawer o back) */}
+          <View style={styles.leftContainer}>
+          {showDrawer && (
+            <DrawerToggleButton tintColor={tintColor} />
+          )}
+          
+          {showBack && (
+            <TouchableOpacity 
+              style={styles.backButton} 
+              onPress={onBackPress || (() => router.back())}
+              activeOpacity={0.7}
+            >
+              <Ionicons name="arrow-back" size={20} color={tintColor} />
+            </TouchableOpacity>
+          )}
+        </View>
+        
+        {/* Título o logo */}
+        <View style={styles.titleContainer}>
         {showLogo ? (
           <Image
             source={require('../../../assets/images/full-logo.png')}
@@ -175,7 +204,7 @@ export default function AppHeader({
                 >
                   <Ionicons 
                     name={totalNotifications > 0 ? "notifications" : "notifications-outline"} 
-                    size={24} 
+                    size={20} 
                     color={tintColor} 
                   />
                 </NotificationIconBadge>
@@ -187,13 +216,15 @@ export default function AppHeader({
                 style={styles.profileButton}
                 onPress={() => router.push('/profile')}
               >
-                <Ionicons name="person-circle" size={28} color={tintColor} />
+                <Ionicons name="person-circle" size={24} color={tintColor} />
               </TouchableOpacity>
             )}
           </View>
         )}
-      </View>
-    </View>
+        </View>
+        </View>
+      </BlurView>
+    </>
   );
 }
 
@@ -244,20 +275,30 @@ const renderActionButton = (
 };
 
 const styles = StyleSheet.create({
+  headerContainer: {
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: 'rgba(0, 0, 0, 0.1)',
+  },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    height: 96,
-    paddingTop: Platform.OS === 'ios' ? 40 : 0,
-    paddingHorizontal: 8,
-    backgroundColor: colors.white,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.veryLightGray,
+    height: 56,
+    paddingHorizontal: 16,
+  },
+  leftContainer: {
+    minWidth: 44,
+    alignItems: 'flex-start',
+    justifyContent: 'center',
   },
   backButton: {
-    padding: 8,
-    marginLeft: 8,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: 'rgba(0, 0, 0, 0.06)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginLeft: -4,
   },
   titleContainer: {
     flex: 1,
@@ -266,7 +307,8 @@ const styles = StyleSheet.create({
   },
   title: {
     fontSize: 18,
-    fontWeight: 'bold',
+    fontWeight: '600',
+    letterSpacing: -0.3,
   },
   logo: {
     width: 120,
@@ -301,9 +343,19 @@ const styles = StyleSheet.create({
     opacity: 0.6,
   },
   notificationButton: {
-    padding: 8,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: 'rgba(0, 0, 0, 0.06)',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   profileButton: {
-    padding: 8,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: 'rgba(0, 0, 0, 0.06)',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
 });

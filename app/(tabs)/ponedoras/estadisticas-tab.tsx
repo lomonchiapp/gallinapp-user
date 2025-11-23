@@ -32,6 +32,7 @@ export default function EstadisticasTab() {
   const estadisticasGenerales = useMemo(() => {
     const lotesActivos = lotes.filter(lote => lote.estado === EstadoLote.ACTIVO);
     const totalGallinas = lotesActivos.reduce((sum, lote) => sum + lote.cantidadActual, 0);
+    const totalGallinasInicial = lotesActivos.reduce((sum, lote) => sum + lote.cantidadInicial, 0); // Para CPU
     const totalHuevos = Object.values(estadisticasLotes).reduce((sum, stats) => sum + (stats.huevos || 0), 0);
     const totalMuertes = Object.values(estadisticasLotes).reduce((sum, stats) => sum + (stats.muertes || 0), 0);
     
@@ -46,6 +47,7 @@ export default function EstadisticasTab() {
       totalLotes: lotes.length,
       lotesActivos: lotesActivos.length,
       totalGallinas,
+      totalGallinasInicial, // Para cálculo de CPU
       totalHuevos,
       totalMuertes,
       produccionPromedio,
@@ -291,6 +293,7 @@ export default function EstadisticasTab() {
           <View style={styles.cpuContainer}>
             <CostUnitarioBadge
               costoTotal={estadisticasGastos.gastoTotal}
+              cantidadInicial={estadisticasGenerales.totalGallinasInicial}
               cantidadActual={estadisticasGenerales.gallinasVivas}
               loteId="general"
               tipoLote="PONEDORA"

@@ -20,7 +20,8 @@ interface CostUnitarioModalProps {
   loteId: string;
   tipoLote: string;
   costoTotal: number;
-  cantidadActual: number;
+  cantidadInicial: number;
+  cantidadActual?: number;
 }
 
 export default function CostUnitarioModal({
@@ -29,6 +30,7 @@ export default function CostUnitarioModal({
   loteId,
   tipoLote,
   costoTotal,
+  cantidadInicial,
   cantidadActual
 }: CostUnitarioModalProps) {
   // Formatear el precio
@@ -41,7 +43,8 @@ export default function CostUnitarioModal({
     }).format(price);
   };
 
-  const costoUnitario = cantidadActual > 0 ? costoTotal / cantidadActual : 0;
+  // CPU se calcula con cantidadInicial (no debe cambiar al vender aves)
+  const costoUnitario = cantidadInicial > 0 ? costoTotal / cantidadInicial : 0;
 
   return (
     <Modal
@@ -69,13 +72,24 @@ export default function CostUnitarioModal({
                   <Text style={styles.summaryValue}>{formatPrice(costoTotal)}</Text>
                 </View>
                 <View style={styles.summaryRow}>
-                  <Text style={styles.summaryLabel}>Cantidad Actual:</Text>
-                  <Text style={styles.summaryValue}>{cantidadActual} aves</Text>
+                  <Text style={styles.summaryLabel}>Cantidad Inicial:</Text>
+                  <Text style={styles.summaryValue}>{cantidadInicial} aves</Text>
                 </View>
+                {cantidadActual !== undefined && cantidadActual !== cantidadInicial && (
+                  <View style={styles.summaryRow}>
+                    <Text style={styles.summaryLabel}>Cantidad Actual:</Text>
+                    <Text style={styles.summaryValue}>{cantidadActual} aves</Text>
+                  </View>
+                )}
                 <View style={styles.summaryRow}>
-                  <Text style={styles.summaryLabel}>Costo Unitario:</Text>
+                  <Text style={styles.summaryLabel}>Costo Unitario (CPU):</Text>
                   <Text style={[styles.summaryValue, styles.costUnitario]}>
                     {formatPrice(costoUnitario)}
+                  </Text>
+                </View>
+                <View style={styles.summaryRow}>
+                  <Text style={[styles.summaryLabel, { fontSize: 12, fontStyle: 'italic', color: colors.textMedium }]}>
+                    * CPU se calcula con cantidad inicial y no cambia al vender aves
                   </Text>
                 </View>
               </View>

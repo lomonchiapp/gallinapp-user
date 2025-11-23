@@ -63,8 +63,9 @@ export const calcularDesgloseCostos = async (
     // 2. Costos de producción (desde que empezó a poner)
     const gastosProduccion = await obtenerGastosPorLote(lote.id!, TipoAve.PONEDORA);
     const costoTotalProduccion = gastosProduccion.reduce((sum, gasto) => sum + gasto.total, 0);
-    const costoPorAveProduccion = lote.cantidadActual > 0 
-      ? costoTotalProduccion / lote.cantidadActual 
+    // CPU se calcula con cantidadInicial, no cantidadActual (no debe cambiar al vender aves)
+    const costoPorAveProduccion = lote.cantidadInicial > 0 
+      ? costoTotalProduccion / lote.cantidadInicial 
       : 0;
 
     // 3. Calcular totales
@@ -128,8 +129,17 @@ export const calcularCostoPorHuevo = async (
     );
 
     // Calcular edad del lote en semanas
+    // Los días se calculan basándose en medianoche (00:00), no en 24 horas exactas
+    const fechaNacimiento = new Date(lote.fechaNacimiento);
+    const fechaNacimientoMidnight = new Date(fechaNacimiento);
+    fechaNacimientoMidnight.setHours(0, 0, 0, 0);
+    
+    const ahora = new Date();
+    const ahoraMidnight = new Date(ahora);
+    ahoraMidnight.setHours(0, 0, 0, 0);
+    
     const edadEnDias = Math.floor(
-      (new Date().getTime() - new Date(lote.fechaNacimiento).getTime()) / (1000 * 60 * 60 * 24)
+      (ahoraMidnight.getTime() - fechaNacimientoMidnight.getTime()) / (1000 * 60 * 60 * 24)
     );
     const edadEnSemanas = Math.floor(edadEnDias / 7);
 
@@ -234,8 +244,17 @@ export const generarReporteCostos = async (
       : null;
 
     // Calcular edad
+    // Los días se calculan basándose en medianoche (00:00), no en 24 horas exactas
+    const fechaNacimiento = new Date(lote.fechaNacimiento);
+    const fechaNacimientoMidnight = new Date(fechaNacimiento);
+    fechaNacimientoMidnight.setHours(0, 0, 0, 0);
+    
+    const ahora = new Date();
+    const ahoraMidnight = new Date(ahora);
+    ahoraMidnight.setHours(0, 0, 0, 0);
+    
     const edadEnDias = Math.floor(
-      (new Date().getTime() - new Date(lote.fechaNacimiento).getTime()) / (1000 * 60 * 60 * 24)
+      (ahoraMidnight.getTime() - fechaNacimientoMidnight.getTime()) / (1000 * 60 * 60 * 24)
     );
     const edadEnSemanas = Math.floor(edadEnDias / 7);
 

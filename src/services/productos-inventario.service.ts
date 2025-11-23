@@ -181,10 +181,17 @@ class ProductosInventarioService {
   
   /**
    * Calcula la edad en días desde la fecha de nacimiento
+   * Los días se calculan basándose en medianoche (00:00), no en 24 horas exactas
    */
   private calcularEdadEnDias(fechaNacimiento: Date): number {
+    const fechaMidnight = new Date(fechaNacimiento);
+    fechaMidnight.setHours(0, 0, 0, 0);
+    
     const hoy = new Date();
-    const diferencia = hoy.getTime() - new Date(fechaNacimiento).getTime();
+    const hoyMidnight = new Date(hoy);
+    hoyMidnight.setHours(0, 0, 0, 0);
+    
+    const diferencia = hoyMidnight.getTime() - fechaMidnight.getTime();
     return Math.floor(diferencia / (1000 * 60 * 60 * 24));
   }
   

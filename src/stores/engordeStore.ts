@@ -171,8 +171,11 @@ export const useEngordeStore = create<EngordeState>((set, get) => ({
   },
   
   suscribirseAEngorde: () => {
+    // Marcar como cargando al iniciar la suscripción
+    set({ isLoading: true, error: null });
+    
     return suscribirseALotesEngorde(async (lotes) => {
-      set({ lotes, error: null });
+      set({ lotes, isLoading: false, error: null });
       
       // 🐔 MONITOREO AUTOMÁTICO DE BIENESTAR ANIMAL
       try {

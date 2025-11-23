@@ -4,8 +4,8 @@
 
 import { Ionicons } from '@expo/vector-icons';
 import { router, useLocalSearchParams } from 'expo-router';
-import React, { useState } from 'react';
-import { Alert, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import React, { useState, useMemo } from 'react';
+import { Alert, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View, FlatList, RefreshControl, Platform } from 'react-native';
 import Button from '../../../src/components/ui/Button';
 import Card from '../../../src/components/ui/Card';
 import GastoSheet from '../../../src/components/ui/GastoSheet';
@@ -15,7 +15,7 @@ import { useEngordeStore } from '../../../src/stores/engordeStore';
 import { useGastosStore } from '../../../src/stores/gastosStore';
 import { useLevantesStore } from '../../../src/stores/levantesStore';
 import { usePonedorasStore } from '../../../src/stores/ponedorasStore';
-import { TipoAve } from '../../../src/types';
+import { TipoAve } from '../../../src/types/enums';
 
 export default function GastosScreen() {
   const { registrarGasto, tipo, nombre } = useLocalSearchParams<{
@@ -31,6 +31,12 @@ export default function GastosScreen() {
     tipo: TipoAve;
     nombre: string;
   } | null>(null);
+  
+  // Estados para filtros y paginación
+  const [busqueda, setBusqueda] = useState('');
+  const [filtroTipo, setFiltroTipo] = useState<TipoAve | 'TODOS'>('TODOS');
+  const [paginaActual, setPaginaActual] = useState(1);
+  const itemsPorPagina = 20;
   
   const { articulos, loadArticulos, isLoading: articulosLoading, error: articulosError } = useArticulosStore();
   const { gastos, estadisticas, cargarGastos, cargarEstadisticas, isLoading: gastosLoading } = useGastosStore();
@@ -59,7 +65,8 @@ export default function GastosScreen() {
   React.useEffect(() => {
     console.log('🔄 Cargando artículos y gastos...');
     loadArticulos();
-    cargarGastos();
+    // Cargar todos los gastos sin filtros
+    cargarGastos(undefined, undefined);
     cargarEstadisticas();
   }, []);
 
@@ -94,17 +101,113 @@ export default function GastosScreen() {
     });
   };
 
-  const handleVerHistorialGastos = () => {
-    Alert.alert('Info', 'El historial completo se muestra en esta misma pantalla');
-  };
-  
   const handleRegistrarGasto = (loteId: string, tipo: TipoAve, nombre: string) => {
     setLoteSeleccionado({ id: loteId, tipo, nombre });
     setGastoSheetVisible(true);
   };
 
+  // Filtrar gastos
+  const gastosFiltrados = useMemo(() => {
+    let filtered = [...gastos];
+
+    // Filtrar por tipo
+    if (filtroTipo !== 'TODOS') {
+      filtered = filtered.filter(gasto => gasto.tipoLote === filtroTipo);
+    }
+
+    // Filtrar por búsqueda
+    if (busqueda.trim()) {
+      const terminoLower = busqueda.toLowerCase();
+      filtered = filtered.filter(gasto =>
+        gasto.articuloNombre?.toLowerCase().includes(terminoLower) ||
+        gasto.descripcion?.toLowerCase().includes(terminoLower) ||
+        obtenerNombreLote(gasto.loteId || '', gasto.tipoLote).toLowerCase().includes(terminoLower)
+      );
+    }
+
+    return filtered.sort((a, b) => b.fecha.getTime() - a.fecha.getTime());
+  }, [gastos, filtroTipo, busqueda]);
+
+  // Paginación
+  const totalPaginas = Math.ceil(gastosFiltrados.length / itemsPorPagina);
+  const gastosPaginados = useMemo(() => {
+    const inicio = (paginaActual - 1) * itemsPorPagina;
+    const fin = inicio + itemsPorPagina;
+    return gastosFiltrados.slice(inicio, fin);
+  }, [gastosFiltrados, paginaActual]);
+
+  const handleRefresh = async () => {
+    await cargarGastos(undefined, undefined);
+    await cargarEstadisticas();
+    setPaginaActual(1); // Resetear a primera página al refrescar
+  };
+
+  const handleSiguientePagina = () => {
+    if (paginaActual < totalPaginas) {
+      setPaginaActual(paginaActual + 1);
+    }
+  };
+
+  const handlePaginaAnterior = () => {
+    if (paginaActual > 1) {
+      setPaginaActual(paginaActual - 1);
+    }
+  };
+
+  const handleIrAPrimeraPagina = () => {
+    setPaginaActual(1);
+  };
+
+  const handleIrAUltimaPagina = () => {
+    setPaginaActual(totalPaginas);
+  };
+
+  const handleCambiarFiltro = (tipo: TipoAve | 'TODOS') => {
+    setFiltroTipo(tipo);
+    setPaginaActual(1); // Resetear a primera página al cambiar filtro
+  };
+
+  // Helper para obtener el label del tipo
+  const getTipoLabel = (tipo: TipoAve): string => {
+    switch (tipo) {
+      case TipoAve.PONEDORA:
+        return 'Ponedoras';
+      case TipoAve.POLLO_LEVANTE:
+        return 'Levantes';
+      case TipoAve.POLLO_ENGORDE:
+        return 'Engorde';
+      default:
+        return 'Otro';
+    }
+  };
+
+  // Helper para obtener el estilo del badge según el tipo
+  const getTipoBadgeStyle = (tipo: TipoAve) => {
+    switch (tipo) {
+      case TipoAve.PONEDORA:
+        return { backgroundColor: colors.primary + '15', borderColor: colors.primary + '30' };
+      case TipoAve.POLLO_LEVANTE:
+        return { backgroundColor: colors.secondary + '15', borderColor: colors.secondary + '30' };
+      case TipoAve.POLLO_ENGORDE:
+        return { backgroundColor: colors.engorde + '15', borderColor: colors.engorde + '30' };
+      default:
+        return { backgroundColor: colors.lightGray + '15', borderColor: colors.lightGray + '30' };
+    }
+  };
+
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.contentContainer}>
+    <ScrollView 
+      style={styles.container} 
+      contentContainerStyle={styles.contentContainer}
+      refreshControl={
+        <RefreshControl
+          refreshing={gastosLoading}
+          onRefresh={handleRefresh}
+          tintColor={colors.primary}
+          colors={[colors.primary]}
+        />
+      }
+    >
       <View style={styles.header}>
         <Text style={styles.title}>Gastos y Artículos</Text>
         <Button 
@@ -214,91 +317,256 @@ export default function GastosScreen() {
           </View>
         )
       ) : (
-        // Sección de historial de gastos
+        // Sección de historial de gastos modernizada
         <View style={styles.historialContainer}>
-          <Card style={styles.summaryCard}>
-            <Text style={styles.summaryTitle}>Resumen de Gastos</Text>
-            <View style={styles.summaryRow}>
-              <View style={styles.summaryItem}>
-                <Text style={styles.summaryValue}>
-                  RD${estadisticas?.ponedoras?.toFixed(2) || '0.00'}
-                </Text>
-                <Text style={styles.summaryLabel}>Ponedoras</Text>
+          {/* Resumen en cards individuales */}
+          <View style={styles.resumenCardsContainer}>
+            <Card style={styles.resumenCard}>
+              <View style={styles.resumenCardHeader}>
+                <Ionicons name="egg" size={24} color={colors.primary} />
+                <Text style={styles.resumenCardTitle}>Ponedoras</Text>
               </View>
-              <View style={styles.summaryItem}>
-                <Text style={styles.summaryValue}>
-                  RD${estadisticas?.israelies?.toFixed(2) || '0.00'}
-                </Text>
-                <Text style={styles.summaryLabel}>Israelíes</Text>
+              <Text style={styles.resumenCardValue}>
+                RD${estadisticas?.ponedoras?.toFixed(2) || '0.00'}
+              </Text>
+            </Card>
+            
+            <Card style={styles.resumenCard}>
+              <View style={styles.resumenCardHeader}>
+                <Ionicons name="trending-up" size={24} color={colors.secondary} />
+                <Text style={styles.resumenCardTitle}>Levantes</Text>
               </View>
-              <View style={styles.summaryItem}>
-                <Text style={styles.summaryValue}>
-                  RD${estadisticas?.engorde?.toFixed(2) || '0.00'}
-                </Text>
-                <Text style={styles.summaryLabel}>Engorde</Text>
+              <Text style={[styles.resumenCardValue, { color: colors.secondary }]}>
+                RD${estadisticas?.israelies?.toFixed(2) || '0.00'}
+              </Text>
+            </Card>
+            
+            <Card style={styles.resumenCard}>
+              <View style={styles.resumenCardHeader}>
+                <Ionicons name="fast-food" size={24} color={colors.engorde} />
+                <Text style={styles.resumenCardTitle}>Engorde</Text>
               </View>
-            </View>
-            <View style={styles.totalRow}>
-              <Text style={styles.totalLabel}>Total General:</Text>
-              <Text style={styles.totalValue}>
+              <Text style={[styles.resumenCardValue, { color: colors.engorde }]}>
+                RD${estadisticas?.engorde?.toFixed(2) || '0.00'}
+              </Text>
+            </Card>
+            
+            <Card style={[styles.resumenCard, styles.resumenCardTotal]}>
+              <View style={styles.resumenCardHeader}>
+                <Ionicons name="cash" size={28} color={colors.danger} />
+                <Text style={styles.resumenCardTitle}>Total</Text>
+              </View>
+              <Text style={styles.resumenCardTotalValue}>
                 RD${estadisticas?.total?.toFixed(2) || '0.00'}
               </Text>
-            </View>
-          </Card>
-          
-          <View style={styles.historialHeader}>
-            <Text style={styles.historialTitle}>Gastos Recientes</Text>
-            <Button 
-              title="Ver Todos" 
-              onPress={handleVerHistorialGastos} 
-              variant="outline"
-              size="small"
-            />
+            </Card>
           </View>
-          
+
+          {/* Búsqueda */}
+          <View style={styles.searchContainer}>
+            <Ionicons name="search" size={20} color={colors.textMedium} />
+            <TextInput
+              style={styles.searchInput}
+              placeholder="Buscar gastos..."
+              value={busqueda}
+              onChangeText={(text) => {
+                setBusqueda(text);
+                setPaginaActual(1);
+              }}
+              placeholderTextColor={colors.textMedium}
+            />
+            {busqueda.length > 0 && (
+              <TouchableOpacity onPress={() => setBusqueda('')}>
+                <Ionicons name="close-circle" size={20} color={colors.textMedium} />
+              </TouchableOpacity>
+            )}
+          </View>
+
+          {/* Filtros */}
+          <View style={styles.filtrosContainer}>
+            <TouchableOpacity
+              style={[styles.filtroButton, filtroTipo === 'TODOS' && styles.filtroButtonActive]}
+              onPress={() => handleCambiarFiltro('TODOS')}
+            >
+              <Text style={[styles.filtroButtonText, filtroTipo === 'TODOS' && styles.filtroButtonTextActive]}>
+                Todos
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.filtroButton, filtroTipo === TipoAve.PONEDORA && styles.filtroButtonActive]}
+              onPress={() => handleCambiarFiltro(TipoAve.PONEDORA)}
+            >
+              <Text style={[styles.filtroButtonText, filtroTipo === TipoAve.PONEDORA && styles.filtroButtonTextActive]}>
+                Ponedoras
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.filtroButton, filtroTipo === TipoAve.POLLO_LEVANTE && styles.filtroButtonActive]}
+              onPress={() => handleCambiarFiltro(TipoAve.POLLO_LEVANTE)}
+            >
+              <Text style={[styles.filtroButtonText, filtroTipo === TipoAve.POLLO_LEVANTE && styles.filtroButtonTextActive]}>
+                Levantes
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.filtroButton, filtroTipo === TipoAve.POLLO_ENGORDE && styles.filtroButtonActive]}
+              onPress={() => handleCambiarFiltro(TipoAve.POLLO_ENGORDE)}
+            >
+              <Text style={[styles.filtroButtonText, filtroTipo === TipoAve.POLLO_ENGORDE && styles.filtroButtonTextActive]}>
+                Engorde
+              </Text>
+            </TouchableOpacity>
+          </View>
+
+          {/* Lista de gastos */}
           {gastosLoading ? (
             <View style={styles.loadingState}>
               <Text style={styles.loadingText}>Cargando gastos...</Text>
             </View>
-          ) : gastos.length === 0 ? (
+          ) : gastosFiltrados.length === 0 ? (
             <View style={styles.emptyState}>
               <Ionicons name="receipt-outline" size={64} color={colors.lightGray} />
-              <Text style={styles.emptyStateTitle}>No hay gastos registrados</Text>
+              <Text style={styles.emptyStateTitle}>No hay gastos</Text>
               <Text style={styles.emptyStateText}>
-                Los gastos se registrarán automáticamente al agregarlos a los lotes
+                {busqueda || filtroTipo !== 'TODOS' 
+                  ? 'No se encontraron gastos con los filtros aplicados'
+                  : 'Los gastos se registrarán automáticamente al agregarlos a los lotes'}
               </Text>
             </View>
           ) : (
-            <View style={styles.gastosListContainer}>
-              {gastos.slice(0, 10).map((gasto) => (
-                <Card key={gasto.id} style={styles.gastoCard}>
-                  <View style={styles.gastoHeader}>
-                    <View style={styles.gastoInfo}>
-                      <Text style={styles.gastoConcepto}>{gasto.articuloNombre}</Text>
-                      <Text style={styles.gastoFecha}>
-                        {gasto.fecha.toLocaleDateString('es-ES')}
+            <>
+              <FlatList
+                data={gastosPaginados}
+                keyExtractor={(item) => item.id}
+                renderItem={({ item: gasto }) => (
+                  <Card key={gasto.id} style={styles.gastoCard}>
+                    <View style={styles.gastoCardHeader}>
+                      <View style={styles.gastoCardMain}>
+                        <View style={styles.gastoCardTitleRow}>
+                          <Text style={styles.gastoConcepto}>{gasto.articuloNombre}</Text>
+                          <Text style={styles.gastoMonto}>RD${gasto.total.toFixed(2)}</Text>
+                        </View>
+                        <View style={styles.gastoCardMeta}>
+                          <View style={styles.gastoCardMetaItem}>
+                            <Ionicons name="calendar-outline" size={14} color={colors.textMedium} />
+                            <Text style={styles.gastoFecha}>
+                              {gasto.fecha.toLocaleDateString('es-DO', {
+                                day: '2-digit',
+                                month: 'short',
+                                year: 'numeric',
+                              })}
+                            </Text>
+                          </View>
+                          <View style={styles.gastoCardMetaItem}>
+                            <Ionicons name="cube-outline" size={14} color={colors.textMedium} />
+                            <Text style={styles.gastoCantidadPrecio}>
+                              {gasto.cantidad} × RD${gasto.precioUnitario?.toFixed(2) || '0.00'}
+                            </Text>
+                          </View>
+                        </View>
+                      </View>
+                    </View>
+                    
+                    {gasto.loteId && (
+                      <View style={styles.gastoLoteInfo}>
+                        <View style={styles.gastoLoteInfoItem}>
+                          <Ionicons name="location-outline" size={14} color={colors.primary} />
+                          <Text style={styles.gastoLoteText}>
+                            {obtenerNombreLote(gasto.loteId, gasto.tipoLote)}
+                          </Text>
+                        </View>
+                        <View style={[styles.gastoTipoBadge, getTipoBadgeStyle(gasto.tipoLote)]}>
+                          <Text style={styles.gastoTipoText}>
+                            {getTipoLabel(gasto.tipoLote)}
+                          </Text>
+                        </View>
+                      </View>
+                    )}
+                    
+                    {gasto.descripcion && (
+                      <View style={styles.gastoDescripcionContainer}>
+                        <Text style={styles.gastoDescripcion}>{gasto.descripcion}</Text>
+                      </View>
+                    )}
+                  </Card>
+                )}
+                contentContainerStyle={styles.gastosListContent}
+                scrollEnabled={false}
+                ListEmptyComponent={() => null}
+              />
+
+              {/* Paginación */}
+              {totalPaginas > 1 && (
+                <View style={styles.paginacionContainer}>
+                  <View style={styles.paginacionControls}>
+                    <TouchableOpacity
+                      style={[styles.paginacionButton, paginaActual === 1 && styles.paginacionButtonDisabled]}
+                      onPress={handleIrAPrimeraPagina}
+                      disabled={paginaActual === 1}
+                    >
+                      <Ionicons 
+                        name="chevrons-back" 
+                        size={18} 
+                        color={paginaActual === 1 ? colors.textLight : colors.primary} 
+                      />
+                    </TouchableOpacity>
+                    
+                    <TouchableOpacity
+                      style={[styles.paginacionButton, paginaActual === 1 && styles.paginacionButtonDisabled]}
+                      onPress={handlePaginaAnterior}
+                      disabled={paginaActual === 1}
+                    >
+                      <Ionicons 
+                        name="chevron-back" 
+                        size={20} 
+                        color={paginaActual === 1 ? colors.textLight : colors.primary} 
+                      />
+                    </TouchableOpacity>
+                    
+                    <View style={styles.paginacionInfo}>
+                      <Text style={styles.paginacionText}>
+                        {paginaActual} / {totalPaginas}
+                      </Text>
+                      <Text style={styles.paginacionSubtext}>
+                        {gastosPaginados.length} de {gastosFiltrados.length} gastos
                       </Text>
                     </View>
-                    <Text style={styles.gastoMonto}>RD${gasto.total.toFixed(2)}</Text>
+                    
+                    <TouchableOpacity
+                      style={[styles.paginacionButton, paginaActual === totalPaginas && styles.paginacionButtonDisabled]}
+                      onPress={handleSiguientePagina}
+                      disabled={paginaActual === totalPaginas}
+                    >
+                      <Ionicons 
+                        name="chevron-forward" 
+                        size={20} 
+                        color={paginaActual === totalPaginas ? colors.textLight : colors.primary} 
+                      />
+                    </TouchableOpacity>
+                    
+                    <TouchableOpacity
+                      style={[styles.paginacionButton, paginaActual === totalPaginas && styles.paginacionButtonDisabled]}
+                      onPress={handleIrAUltimaPagina}
+                      disabled={paginaActual === totalPaginas}
+                    >
+                      <Ionicons 
+                        name="chevrons-forward" 
+                        size={18} 
+                        color={paginaActual === totalPaginas ? colors.textLight : colors.primary} 
+                      />
+                    </TouchableOpacity>
                   </View>
-                  
-                  {gasto.loteId && (
-                    <View style={styles.gastoLoteInfo}>
-                      <Text style={styles.gastoLoteText}>
-                        <Text style={styles.gastoLoteLabel}>Lote:</Text> {obtenerNombreLote(gasto.loteId, gasto.tipoLote)}
-                      </Text>
-                      <Text style={styles.gastoTipoText}>
-                        <Text style={styles.gastoTipoLabel}>Tipo:</Text> {gasto.tipoLote}
-                      </Text>
-                    </View>
-                  )}
-                  
-                  {gasto.descripcion && (
-                    <Text style={styles.gastoDescripcion}>{gasto.descripcion}</Text>
-                  )}
-                </Card>
-              ))}
-            </View>
+                </View>
+              )}
+
+              {/* Info de resultados */}
+              <View style={styles.resultsInfo}>
+                <Text style={styles.resultsText}>
+                  Mostrando {gastosPaginados.length} de {gastosFiltrados.length} gastos
+                  {busqueda && ` • Buscando: "${busqueda}"`}
+                </Text>
+              </View>
+            </>
           )}
         </View>
       )}
@@ -423,62 +691,108 @@ const styles = StyleSheet.create({
   historialContainer: {
     flex: 1,
   },
-  summaryCard: {
-    marginBottom: 16,
-    padding: 16,
+  // Resumen cards
+  resumenCardsContainer: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 12,
+    marginBottom: 20,
   },
-  summaryTitle: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    color: colors.textDark,
+  resumenCard: {
+    flex: 1,
+    minWidth: '47%',
+    padding: 16,
+    borderRadius: 12,
+    shadowColor: colors.black,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  resumenCardTotal: {
+    minWidth: '100%',
+    backgroundColor: colors.danger + '08',
+    borderWidth: 1,
+    borderColor: colors.danger + '20',
+  },
+  resumenCardHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
     marginBottom: 12,
   },
-  summaryRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
+  resumenCardTitle: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: colors.textMedium,
   },
-  summaryItem: {
-    alignItems: 'center',
-    flex: 1,
+  resumenCardValue: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: colors.primary,
   },
-  summaryValue: {
-    fontSize: 18,
+  resumenCardTotalValue: {
+    fontSize: 24,
     fontWeight: 'bold',
     color: colors.danger,
   },
-  summaryLabel: {
+  // Búsqueda
+  searchContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: colors.white,
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: colors.veryLightGray,
+    gap: 12,
+    ...Platform.select({
+      ios: {
+        shadowColor: colors.black,
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.05,
+        shadowRadius: 4,
+      },
+      android: {
+        elevation: 2,
+      },
+    }),
+  },
+  searchInput: {
+    flex: 1,
+    fontSize: 15,
+    color: colors.textDark,
+    padding: 0,
+  },
+  // Filtros
+  filtrosContainer: {
+    flexDirection: 'row',
+    gap: 8,
+    marginBottom: 20,
+    flexWrap: 'wrap',
+  },
+  filtroButton: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 20,
+    backgroundColor: colors.white,
+    borderWidth: 1,
+    borderColor: colors.veryLightGray,
+  },
+  filtroButtonActive: {
+    backgroundColor: colors.primary,
+    borderColor: colors.primary,
+  },
+  filtroButtonText: {
     fontSize: 14,
+    fontWeight: '500',
     color: colors.textMedium,
   },
-  historialHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 16,
-  },
-  historialTitle: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: colors.textDark,
-  },
-  totalRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginTop: 12,
-    paddingTop: 12,
-    borderTopWidth: 1,
-    borderTopColor: colors.veryLightGray,
-  },
-  totalLabel: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    color: colors.textDark,
-  },
-  totalValue: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: colors.primary,
+  filtroButtonTextActive: {
+    color: colors.white,
+    fontWeight: '600',
   },
   loadingState: {
     alignItems: 'center',
@@ -489,62 +803,170 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: colors.textMedium,
   },
-  gastosListContainer: {
-    flex: 1,
+  // Lista de gastos
+  gastosListContent: {
+    paddingBottom: 16,
   },
   gastoCard: {
-    marginBottom: 12,
-    padding: 16,
+    marginBottom: 14,
+    padding: 18,
+    borderRadius: 14,
+    shadowColor: colors.black,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 4,
+    elevation: 2,
   },
-  gastoHeader: {
+  gastoCardHeader: {
+    marginBottom: 12,
+  },
+  gastoCardMain: {
+    flex: 1,
+  },
+  gastoCardTitleRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'flex-start',
     marginBottom: 8,
   },
-  gastoInfo: {
-    flex: 1,
-  },
   gastoConcepto: {
-    fontSize: 16,
-    fontWeight: 'bold',
+    fontSize: 17,
+    fontWeight: '700',
     color: colors.textDark,
-    marginBottom: 2,
-  },
-  gastoFecha: {
-    fontSize: 14,
-    color: colors.textMedium,
+    flex: 1,
+    marginRight: 12,
   },
   gastoMonto: {
-    fontSize: 16,
+    fontSize: 18,
     fontWeight: 'bold',
     color: colors.danger,
+  },
+  gastoCardMeta: {
+    flexDirection: 'row',
+    gap: 16,
+    flexWrap: 'wrap',
+  },
+  gastoCardMetaItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  gastoFecha: {
+    fontSize: 13,
+    color: colors.textMedium,
+  },
+  gastoCantidadPrecio: {
+    fontSize: 13,
+    color: colors.textMedium,
   },
   gastoLoteInfo: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    marginBottom: 8,
+    alignItems: 'center',
+    marginTop: 12,
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: colors.veryLightGray,
+  },
+  gastoLoteInfoItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    flex: 1,
   },
   gastoLoteText: {
     fontSize: 14,
-    color: colors.textMedium,
-  },
-  gastoLoteLabel: {
-    fontWeight: 'bold',
     color: colors.textDark,
+    fontWeight: '500',
+  },
+  gastoTipoBadge: {
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 8,
+    borderWidth: 1,
   },
   gastoTipoText: {
-    fontSize: 14,
-    color: colors.textMedium,
-  },
-  gastoTipoLabel: {
-    fontWeight: 'bold',
+    fontSize: 12,
+    fontWeight: '600',
     color: colors.textDark,
+  },
+  gastoDescripcionContainer: {
+    marginTop: 12,
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: colors.veryLightGray,
   },
   gastoDescripcion: {
     fontSize: 14,
     color: colors.textMedium,
-    fontStyle: 'italic',
+    lineHeight: 20,
+  },
+  // Paginación
+  paginacionContainer: {
+    marginTop: 20,
+    marginBottom: 12,
+    paddingVertical: 16,
+    paddingHorizontal: 16,
+    backgroundColor: colors.white,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: colors.veryLightGray,
+    ...Platform.select({
+      ios: {
+        shadowColor: colors.black,
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.05,
+        shadowRadius: 4,
+      },
+      android: {
+        elevation: 2,
+      },
+    }),
+  },
+  paginacionControls: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: 12,
+  },
+  paginacionButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: colors.background,
+    borderWidth: 1,
+    borderColor: colors.veryLightGray,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  paginacionButtonDisabled: {
+    opacity: 0.4,
+    backgroundColor: colors.veryLightGray,
+  },
+  paginacionInfo: {
+    alignItems: 'center',
+    minWidth: 100,
+    paddingHorizontal: 16,
+  },
+  paginacionText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: colors.textDark,
+  },
+  paginacionSubtext: {
+    fontSize: 12,
+    color: colors.textMedium,
+    marginTop: 2,
+  },
+  // Info de resultados
+  resultsInfo: {
+    paddingVertical: 12,
+    alignItems: 'center',
+  },
+  resultsText: {
+    fontSize: 13,
+    color: colors.textMedium,
+    textAlign: 'center',
   },
   articuloStatus: {
     alignItems: 'flex-end',

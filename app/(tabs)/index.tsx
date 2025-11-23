@@ -17,7 +17,7 @@ import { useFinancialStore } from '../../src/stores/financialStore';
 import { usePonedorasStore } from '../../src/stores/ponedorasStore';
 
 export default function DashboardScreen() {
-  const { user } = useAuthStore();
+  const { user, isAuthenticated, authInitialized } = useAuthStore();
   const router = useRouter();
   const [refreshing, setRefreshing] = useState(false);
   const pushNotificationsInitialized = useRef(false);
@@ -49,16 +49,17 @@ export default function DashboardScreen() {
     }
   }, [config, ponedorasStore.lotes, engordeStore.lotes, levantesStore.lotes]);
 
-  // Inicializar push notifications cuando el usuario esté autenticado
+  // Inicializar push notifications SOLO cuando Firebase Auth confirme que hay usuario autenticado
+  // Esto evita errores de "Usuario no autenticado" al guardar el token
   useEffect(() => {
-    if (user && !pushNotificationsInitialized.current) {
-      console.log('✅ Dashboard: Usuario autenticado - Inicializando push notifications...');
+    if (authInitialized && isAuthenticated && user && !pushNotificationsInitialized.current) {
+      console.log('✅ Dashboard: Usuario autenticado confirmado por Firebase Auth - Inicializando push notifications...');
       pushNotificationsInitialized.current = true;
       initializePushNotifications().catch((error) => {
         console.error('❌ Error al inicializar push notifications:', error);
       });
     }
-  }, [user]);
+  }, [authInitialized, isAuthenticated, user]);
   
   const cargarDatosIniciales = async () => {
     try {

@@ -2,10 +2,12 @@
  * Configuración de Firebase para Asoaves
  */
 
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { initializeApp } from 'firebase/app';
-import { initializeAuth } from 'firebase/auth';
+import { getAuth, getReactNativePersistence, initializeAuth } from 'firebase/auth';
 import { getFirestore } from 'firebase/firestore';
 import { getStorage } from 'firebase/storage';
+import { Platform } from 'react-native';
 
 // Configuración de Firebase proporcionada
 const firebaseConfig = {
@@ -20,8 +22,20 @@ const firebaseConfig = {
 // Inicializar Firebase
 export const app = initializeApp(firebaseConfig);
 
-// Inicializar Auth
-export const auth = initializeAuth(app);
+// Inicializar Auth con persistencia específica por plataforma
+// React Native persistence solo funciona en iOS/Android, no en web
+let auth;
+if (Platform.OS === 'web') {
+  // Para web, usar el auth por defecto (usa localStorage automáticamente)
+  auth = getAuth(app);
+} else {
+  // Para React Native (iOS/Android), usar AsyncStorage
+  auth = initializeAuth(app, {
+    persistence: getReactNativePersistence(AsyncStorage)
+  });
+}
+
+export { auth };
 
 // Inicializar Firestore
 export const db = getFirestore(app);

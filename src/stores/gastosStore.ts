@@ -70,11 +70,17 @@ export const useGastosStore = create<GastosState>((set, get) => ({
   subscribeToGastosByTipo: (tipoLote: TipoAve) => {
     console.log('💰 GastosStore: Suscribiéndose a gastos para', tipoLote);
 
-    return subscribeToGastosByTipo(tipoLote, (gastos) => {
-      console.log('💰 GastosStore: Actualizando gastos desde suscripción:', gastos.length);
-      set({
-        gastos,
-        error: null
+    return subscribeToGastosByTipo(tipoLote, (gastosTipo) => {
+      console.log('💰 GastosStore: Actualizando gastos desde suscripción:', gastosTipo.length);
+      // Combinar gastos en lugar de reemplazarlos
+      set((state) => {
+        // Filtrar gastos del tipo actual y agregar los nuevos
+        const gastosOtrosTipos = state.gastos.filter(g => g.tipoLote !== tipoLote);
+        const gastosCombinados = [...gastosOtrosTipos, ...gastosTipo];
+        return {
+          gastos: gastosCombinados,
+          error: null
+        };
       });
     });
   },
