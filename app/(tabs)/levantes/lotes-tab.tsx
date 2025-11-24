@@ -88,9 +88,14 @@ export default function LotesTab() {
         // Calcular costo para cada lote en segundo plano
         for (const lote of lotes) {
           try {
-            // Importar el servicio directamente
+            // Importar servicios directamente
             const { obtenerGastos } = await import('../../../src/services/gastos.service');
-            const gastosLote = await obtenerGastos(lote.id, TipoAve.POLLO_LEVANTE);
+            const { obtenerTotalMortalidad } = await import('../../../src/services/mortality.service');
+            
+            const [gastosLote, muertes] = await Promise.all([
+              obtenerGastos(lote.id, TipoAve.POLLO_LEVANTE),
+              obtenerTotalMortalidad(lote.id, TipoAve.POLLO_LEVANTE)
+            ]);
             
             // Filtrar gastos para excluir el costo inicial del lote si está incluido
             const gastosAdicionalesFiltrados = gastosLote.filter(gasto => {
@@ -105,15 +110,20 @@ export default function LotesTab() {
             // Sumar el costo inicial del lote + gastos adicionales
             const costoInicial = lote.costo || 0;
             const costoTotal = costoInicial + gastosAdicionales;
-            // CPU se calcula con cantidadInicial, no cantidadActual (no debe cambiar al vender aves)
-            const costoUnitario = lote.cantidadInicial > 0 ? costoTotal / lote.cantidadInicial : 0;
+            
+            // CORRECCIÓN CPU: Usar (Cantidad Inicial - Muertes) como divisor
+            // Esto asegura que las aves vivas absorban el costo de las muertas.
+            // Al vender, la cantidad inicial y muertes no cambian, por lo que el costo se mantiene estable.
+            const cantidadParaCalculo = Math.max(1, lote.cantidadInicial - muertes);
+            const costoUnitario = costoTotal / cantidadParaCalculo;
             
             console.log(`💰 Lote ${lote.id} (${lote.nombre}):`, {
               costoInicial,
               gastosAdicionales,
               costoTotal,
               cantidadInicial: lote.cantidadInicial,
-              cantidadActual: lote.cantidadActual,
+              muertes,
+              cantidadParaCalculo,
               costoUnitario
             });
             
@@ -138,7 +148,7 @@ export default function LotesTab() {
       calcularCostos();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [lotes]); // costosUnitarios se actualiza dentro del efecto, no debe estar en las dependencias
+  }, [lotes, registrosMortalidad]); // Recalcular si cambian lotes o mortalidad
   
   // Debug: Log del estado inicial
   console.log('🔍 Estado inicial:', { busqueda, ordenamiento, ordenDescendente, lotesCount: lotes?.length || 0 });
@@ -775,8 +785,8 @@ export default function LotesTab() {
                         </Text>
                       </View>
                       <CostUnitarioBadge
-                        costoTotal={costoUnitario * lote.cantidadInicial}
-                        cantidadInicial={lote.cantidadInicial}
+                        costoTotal={costoUnitario * (lote.cantidadInicial - (estadisticasMortalidad[lote.id] || 0))}
+                        cantidadInicial={lote.cantidadInicial - (estadisticasMortalidad[lote.id] || 0)}
                         cantidadActual={lote.cantidadActual}
                         loteId={lote.id}
                         tipoLote="POLLO_LEVANTE"

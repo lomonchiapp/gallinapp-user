@@ -114,12 +114,12 @@ export default function TabLayout() {
         <Tabs.Screen
           name="facturacion"
           options={{
+            href: null,
             headerShown: false,
             title: 'Facturas',
             tabBarIcon: ({ color, size }) => (
               <Ionicons name="receipt" size={size} color={color} />
             ),
-            headerTitle: 'Facturas y Comprobantes',
           }}
         />
         <Tabs.Screen
@@ -132,7 +132,7 @@ export default function TabLayout() {
             ),
           }}
         />
-<Tabs.Screen
+        <Tabs.Screen
           name="perfil"
           options={{
             href: null,
@@ -140,6 +140,11 @@ export default function TabLayout() {
             tabBarIcon: ({ color, size }) => (
               <Ionicons name="person-circle" size={size} color={color} />
             ),
+            headerShown: true,
+            headerTransparent: false,
+            contentStyle: {
+              backgroundColor: colors.white,
+            },
           }}
         />
       </Tabs>

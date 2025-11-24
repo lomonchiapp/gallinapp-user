@@ -5,6 +5,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import React from 'react';
 import { Alert, Image, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import Button from '../../src/components/ui/Button';
 import Card from '../../src/components/ui/Card';
 import colors from '../../src/constants/colors';
@@ -32,7 +33,11 @@ export default function PerfilScreen() {
   };
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.contentContainer}>
+    <SafeAreaView style={styles.container} edges={['bottom']}>
+      <ScrollView 
+        contentContainerStyle={styles.contentContainer}
+        contentInsetAdjustmentBehavior="automatic"
+      >
       <Card style={styles.profileCard}>
         <View style={styles.profileHeader}>
           <View style={styles.avatarContainer}>
@@ -116,7 +121,8 @@ export default function PerfilScreen() {
         />
         <Text style={styles.appVersion}>Asoaves v1.0.0</Text>
       </View>
-    </ScrollView>
+      </ScrollView>
+    </SafeAreaView>
   );
 }
 

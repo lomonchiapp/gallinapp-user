@@ -7,6 +7,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import React, { useEffect, useRef, useState } from 'react';
 import { RefreshControl, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import CostProductionStats from '../../src/components/dashboard/CostProductionStats';
 import Card from '../../src/components/ui/Card';
 import { colors } from '../../src/constants/colors';
 import { initializePushNotifications } from '../../src/services/push-notifications.service';
@@ -42,9 +43,8 @@ export default function DashboardScreen() {
   
   // Cargar estadísticas financieras cuando tengamos configuración y lotes
   useEffect(() => {
-    if (config && 
-        ponedorasStore.lotes.length > 0 && 
-        !financialLoading) {
+    const totalLotes = ponedorasStore.lotes.length + engordeStore.lotes.length + levantesStore.lotes.length;
+    if (config && totalLotes > 0 && !financialLoading) {
       cargarEstadisticasFinancieras();
     }
   }, [config, ponedorasStore.lotes, engordeStore.lotes, levantesStore.lotes]);
@@ -257,6 +257,9 @@ export default function DashboardScreen() {
           </View>
         </View>
       </Card>
+
+      {/* Estadísticas de Costos de Producción */}
+      <CostProductionStats isLoading={isLoading} />
 
       {/* Top Lotes Rentables */}
       {topLotesRentables.length > 0 && (

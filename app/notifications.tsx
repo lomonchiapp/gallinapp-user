@@ -17,14 +17,10 @@ import AppHeader from '../src/components/layouts/AppHeader';
 import Button from '../src/components/ui/Button';
 import Card from '../src/components/ui/Card';
 import { colors } from '../src/constants/colors';
-import { createNotification } from '../src/services/notifications.service';
 import { useNotificationsStore } from '../src/stores/notificationsStore';
 import {
     Notification,
-    NotificationCategory,
-    NotificationPriority,
     NotificationStatus,
-    NotificationType
 } from '../src/types/notification';
 
 // Componente para una notificación individual
@@ -190,11 +186,9 @@ const NotificationItem = ({
 export default function NotificationsScreen() {
   const {
     notifications,
-    stats,
     isLoading,
     error,
     loadNotifications,
-    loadStats,
     markNotificationAsRead,
     markAllAsRead,
     archiveNotificationById,
@@ -210,7 +204,6 @@ export default function NotificationsScreen() {
   
   // Cargar datos iniciales
   useEffect(() => {
-    console.log('📱 [NotificationsScreen] Iniciando carga de notificaciones...');
     loadInitialData();
     startRealtimeUpdates();
     
@@ -221,13 +214,7 @@ export default function NotificationsScreen() {
   
   const loadInitialData = async () => {
     try {
-      console.log('📱 [NotificationsScreen] Cargando notificaciones y stats...');
-      await Promise.all([
-        loadNotifications(),
-        loadStats(),
-      ]);
-      console.log('📱 [NotificationsScreen] Notificaciones cargadas:', notifications.length);
-      console.log('📱 [NotificationsScreen] Stats:', stats);
+      await loadNotifications();
     } catch (error) {
       console.error('❌ [NotificationsScreen] Error al cargar datos iniciales:', error);
     }
@@ -254,17 +241,6 @@ export default function NotificationsScreen() {
         return true;
     }
   });
-  
-  // Debug log
-  useEffect(() => {
-    console.log('🔍 [NotificationsScreen] Estado actual:');
-    console.log('  - Total notificaciones:', notifications.length);
-    console.log('  - Filtro activo:', selectedFilter);
-    console.log('  - Notificaciones filtradas:', filteredNotifications.length);
-    console.log('  - Unread count:', getUnreadCount());
-    console.log('  - isLoading:', isLoading);
-    console.log('  - error:', error);
-  }, [notifications, selectedFilter, filteredNotifications]);
   
   // Manejar clic en notificación
   const handleNotificationPress = async (notification: Notification) => {
@@ -308,25 +284,6 @@ export default function NotificationsScreen() {
     );
   };
   
-  // Crear notificación de prueba
-  const handleCreateTestNotification = async () => {
-    try {
-      await createNotification({
-        type: NotificationType.CUSTOM,
-        category: NotificationCategory.PRODUCTION,
-        priority: NotificationPriority.HIGH,
-        title: '🧪 Notificación de Prueba',
-        message: `Esta es una notificación de prueba creada a las ${new Date().toLocaleTimeString()}`,
-        sendPush: false
-      });
-      await loadNotifications();
-      Alert.alert('✅ Éxito', 'Notificación de prueba creada correctamente');
-    } catch (error) {
-      Alert.alert('❌ Error', 'No se pudo crear la notificación de prueba');
-      console.error('Error al crear notificación de prueba:', error);
-    }
-  };
-  
   // Renderizar filtros
   const renderFilters = () => (
     <View style={styles.filtersContainer}>
@@ -353,48 +310,10 @@ export default function NotificationsScreen() {
         onPress={() => setSelectedFilter('archived')}
       >
         <Text style={[styles.filterText, selectedFilter === 'archived' && styles.activeFilterText]}>
-          Archivadas ({stats?.byStatus.ARCHIVED || 0})
+          Archivadas ({notifications.filter(n => n.status === NotificationStatus.ARCHIVED).length})
         </Text>
       </TouchableOpacity>
     </View>
-  );
-  
-  // Renderizar estadísticas
-  const renderStats = () => (
-    <Card style={styles.statsCard}>
-      <View style={styles.statsHeader}>
-        <Ionicons name="analytics" size={24} color={colors.primary} />
-        <Text style={styles.statsTitle}>Resumen de Notificaciones</Text>
-      </View>
-      
-      <View style={styles.statsGrid}>
-        <View style={styles.statItem}>
-          <Text style={styles.statValue}>{stats?.total || 0}</Text>
-          <Text style={styles.statLabel}>Total</Text>
-        </View>
-        
-        <View style={styles.statItem}>
-          <Text style={[styles.statValue, { color: colors.warning }]}>
-            {stats?.unread || 0}
-          </Text>
-          <Text style={styles.statLabel}>No leídas</Text>
-        </View>
-        
-        <View style={styles.statItem}>
-          <Text style={[styles.statValue, { color: colors.danger }]}>
-            {stats?.byPriority.HIGH || 0}
-          </Text>
-          <Text style={styles.statLabel}>Alta prioridad</Text>
-        </View>
-        
-        <View style={styles.statItem}>
-          <Text style={[styles.statValue, { color: colors.success }]}>
-            {stats?.byCategory.PRODUCTION || 0}
-          </Text>
-          <Text style={styles.statLabel}>Producción</Text>
-        </View>
-      </View>
-    </Card>
   );
   
   // Renderizar notificación vacía
@@ -425,17 +344,8 @@ export default function NotificationsScreen() {
       />
       
       {/* Acciones */}
-      <View style={styles.actionsBar}>
-        {__DEV__ && (
-          <Button
-            title="🧪 Crear Test"
-            variant="outline"
-            size="small"
-            onPress={handleCreateTestNotification}
-            style={styles.actionButton}
-          />
-        )}
-        {getUnreadCount() > 0 && (
+      {getUnreadCount() > 0 && (
+        <View style={styles.actionsBar}>
           <Button
             title="Marcar todas como leídas"
             variant="outline"
@@ -443,18 +353,7 @@ export default function NotificationsScreen() {
             onPress={markAllAsRead}
             style={styles.actionButton}
           />
-        )}
-      </View>
-      
-      {/* Debug Info */}
-      {__DEV__ && (
-        <Card style={styles.debugCard}>
-          <Text style={styles.debugTitle}>🔧 Debug Info</Text>
-          <Text style={styles.debugText}>Total: {notifications.length}</Text>
-          <Text style={styles.debugText}>Filtradas: {filteredNotifications.length}</Text>
-          <Text style={styles.debugText}>Unread: {getUnreadCount()}</Text>
-          <Text style={styles.debugText}>Cargando: {isLoading ? 'Sí' : 'No'}</Text>
-        </Card>
+        </View>
       )}
       
       {/* Error */}
@@ -469,9 +368,6 @@ export default function NotificationsScreen() {
           </View>
         </Card>
       )}
-      
-      {/* Estadísticas */}
-      {stats && renderStats()}
       
       {/* Filtros */}
       {renderFilters()}
@@ -522,26 +418,6 @@ const styles = StyleSheet.create({
     minWidth: 100,
   },
   
-  // Debug
-  debugCard: {
-    backgroundColor: colors.warning + '10',
-    marginHorizontal: 16,
-    marginTop: 16,
-    marginBottom: 8,
-    padding: 12,
-  },
-  debugTitle: {
-    fontSize: 14,
-    fontWeight: 'bold',
-    color: colors.textDark,
-    marginBottom: 8,
-  },
-  debugText: {
-    fontSize: 12,
-    color: colors.textMedium,
-    marginBottom: 4,
-  },
-  
   // Error
   errorCard: {
     backgroundColor: colors.danger + '10',
@@ -561,41 +437,6 @@ const styles = StyleSheet.create({
   },
   closeErrorButton: {
     padding: 4,
-  },
-  
-  // Stats
-  statsCard: {
-    marginHorizontal: 16,
-    marginBottom: 16,
-    padding: 16,
-  },
-  statsHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 16,
-  },
-  statsTitle: {
-    marginLeft: 12,
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: colors.textDark,
-  },
-  statsGrid: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-  },
-  statItem: {
-    alignItems: 'center',
-  },
-  statValue: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: colors.primary,
-    marginBottom: 4,
-  },
-  statLabel: {
-    fontSize: 12,
-    color: colors.textMedium,
   },
   
   // Filters

@@ -89,11 +89,11 @@ export default function CustomDrawerContent(props: any) {
         />
 
         <DrawerItem
-          label="Facturación"
+          label="Ventas"
           icon={({ color, size }) => (
-            <Ionicons name="receipt" size={size} color={color} />
+            <Ionicons name="storefront-outline" size={size} color={color} />
           )}
-          onPress={() => router.push('/(tabs)/facturacion')}
+          onPress={() => router.push('/(tabs)/ventas')}
           labelStyle={styles.menuItemText}
         />
 

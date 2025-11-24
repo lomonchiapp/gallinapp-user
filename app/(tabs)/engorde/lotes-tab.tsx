@@ -87,7 +87,12 @@ export default function LotesTab() {
           try {
             // Importar el servicio directamente
             const { obtenerGastos } = await import('../../../src/services/gastos.service');
-            const gastosLote = await obtenerGastos(lote.id, TipoAve.POLLO_ENGORDE);
+            const { obtenerTotalMortalidad } = await import('../../../src/services/mortality.service');
+            
+            const [gastosLote, muertes] = await Promise.all([
+              obtenerGastos(lote.id, TipoAve.POLLO_ENGORDE),
+              obtenerTotalMortalidad(lote.id, TipoAve.POLLO_ENGORDE)
+            ]);
             
             // Filtrar gastos para excluir el costo inicial del lote si está incluido
             const gastosAdicionalesFiltrados = gastosLote.filter(gasto => {
@@ -102,14 +107,18 @@ export default function LotesTab() {
             // Sumar el costo inicial del lote + gastos adicionales
             const costoInicial = lote.costo || 0;
             const costoTotal = costoInicial + gastosAdicionales;
-            // CPU se calcula con cantidadInicial, no cantidadActual (no debe cambiar al vender aves)
-            const costoUnitario = lote.cantidadInicial > 0 ? costoTotal / lote.cantidadInicial : 0;
+            
+            // CORRECCIÓN CPU: Usar (Cantidad Inicial - Muertes) como divisor
+            const cantidadParaCalculo = Math.max(1, lote.cantidadInicial - muertes);
+            const costoUnitario = costoTotal / cantidadParaCalculo;
             
             console.log(`💰 Lote ${lote.id} (${lote.nombre}):`, {
               costoInicial,
               gastosAdicionales,
               costoTotal,
-              cantidadActual: lote.cantidadActual,
+              cantidadInicial: lote.cantidadInicial,
+              muertes,
+              cantidadParaCalculo,
               costoUnitario
             });
             
@@ -133,7 +142,7 @@ export default function LotesTab() {
 
       calcularCostos();
     }
-  }, [lotes]);
+  }, [lotes, registrosMortalidad]);
   
   // Debug: Log del estado inicial
   console.log('🔍 Estado inicial:', { busqueda, ordenamiento, ordenDescendente, lotesCount: lotes?.length || 0 });
@@ -749,8 +758,8 @@ export default function LotesTab() {
                         </Text>
                       </View>
                       <CostUnitarioBadge
-                        costoTotal={costoUnitario * lote.cantidadInicial}
-                        cantidadInicial={lote.cantidadInicial}
+                        costoTotal={costoUnitario * (lote.cantidadInicial - (estadisticasMortalidad[lote.id] || 0))}
+                        cantidadInicial={lote.cantidadInicial - (estadisticasMortalidad[lote.id] || 0)}
                         cantidadActual={lote.cantidadActual}
                         loteId={lote.id}
                         tipoLote="POLLO_ENGORDE"

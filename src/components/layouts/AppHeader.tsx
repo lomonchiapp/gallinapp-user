@@ -3,12 +3,12 @@
  */
 
 import { Ionicons } from '@expo/vector-icons';
-import { BlurView } from 'expo-blur';
 import { DrawerToggleButton } from '@react-navigation/drawer';
-import { StatusBar } from 'expo-status-bar';
+import { BlurView } from 'expo-blur';
 import { router } from 'expo-router';
+import { StatusBar } from 'expo-status-bar';
 import React, { useEffect, useState } from 'react';
-import { ActivityIndicator, Image, Platform, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Image, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { colors } from '../../constants/colors';
 import { useNotifications } from '../../hooks/useNotifications';
@@ -146,7 +146,7 @@ export default function AppHeader({
         style={[
           styles.headerContainer,
           {
-            paddingTop: insets.top,
+            paddingTop: Math.max(insets.top, 8),
           }
         ]}
       >
@@ -278,13 +278,15 @@ const styles = StyleSheet.create({
   headerContainer: {
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: 'rgba(0, 0, 0, 0.1)',
+    paddingBottom: 0,
   },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    height: 56,
+    height: 48,
     paddingHorizontal: 16,
+    paddingVertical: 0,
   },
   leftContainer: {
     minWidth: 44,
@@ -306,9 +308,10 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   title: {
-    fontSize: 18,
+    fontSize: 17,
     fontWeight: '600',
     letterSpacing: -0.3,
+    lineHeight: 20,
   },
   logo: {
     width: 120,

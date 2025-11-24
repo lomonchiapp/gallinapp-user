@@ -4,8 +4,8 @@
 
 import { Ionicons } from '@expo/vector-icons';
 import { router, useLocalSearchParams } from 'expo-router';
-import React, { useState, useMemo } from 'react';
-import { Alert, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View, FlatList, RefreshControl, Platform } from 'react-native';
+import React, { useMemo, useState } from 'react';
+import { Alert, FlatList, Platform, RefreshControl, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import Button from '../../../src/components/ui/Button';
 import Card from '../../../src/components/ui/Card';
 import GastoSheet from '../../../src/components/ui/GastoSheet';
@@ -36,7 +36,9 @@ export default function GastosScreen() {
   const [busqueda, setBusqueda] = useState('');
   const [filtroTipo, setFiltroTipo] = useState<TipoAve | 'TODOS'>('TODOS');
   const [paginaActual, setPaginaActual] = useState(1);
-  const itemsPorPagina = 20;
+  const [itemsPorPagina, setItemsPorPagina] = useState(20);
+  const [vistaActiva, setVistaActiva] = useState<'lista' | 'grid'>('lista');
+  const [mostrarSelectorPagina, setMostrarSelectorPagina] = useState(false);
   
   const { articulos, loadArticulos, isLoading: articulosLoading, error: articulosError } = useArticulosStore();
   const { gastos, estadisticas, cargarGastos, cargarEstadisticas, isLoading: gastosLoading } = useGastosStore();
@@ -134,7 +136,14 @@ export default function GastosScreen() {
     const inicio = (paginaActual - 1) * itemsPorPagina;
     const fin = inicio + itemsPorPagina;
     return gastosFiltrados.slice(inicio, fin);
-  }, [gastosFiltrados, paginaActual]);
+  }, [gastosFiltrados, paginaActual, itemsPorPagina]);
+
+  // Resetear a página 1 cuando cambia itemsPorPagina
+  React.useEffect(() => {
+    if (paginaActual > totalPaginas && totalPaginas > 0) {
+      setPaginaActual(1);
+    }
+  }, [itemsPorPagina, totalPaginas]);
 
   const handleRefresh = async () => {
     await cargarGastos(undefined, undefined);
@@ -166,6 +175,54 @@ export default function GastosScreen() {
     setFiltroTipo(tipo);
     setPaginaActual(1); // Resetear a primera página al cambiar filtro
   };
+
+  // Calcular páginas visibles para navegación inteligente
+  const paginasVisibles = useMemo(() => {
+    const total = totalPaginas;
+    const actual = paginaActual;
+    const visibles: (number | string)[] = [];
+    
+    if (total <= 7) {
+      // Si hay 7 o menos páginas, mostrar todas
+      for (let i = 1; i <= total; i++) {
+        visibles.push(i);
+      }
+    } else {
+      // Siempre mostrar primera página
+      visibles.push(1);
+      
+      if (actual > 3) {
+        visibles.push('...');
+      }
+      
+      // Mostrar páginas alrededor de la actual
+      const inicio = Math.max(2, actual - 1);
+      const fin = Math.min(total - 1, actual + 1);
+      
+      for (let i = inicio; i <= fin; i++) {
+        if (i !== 1 && i !== total) {
+          visibles.push(i);
+        }
+      }
+      
+      if (actual < total - 2) {
+        visibles.push('...');
+      }
+      
+      // Siempre mostrar última página
+      visibles.push(total);
+    }
+    
+    return visibles;
+  }, [totalPaginas, paginaActual]);
+
+  const handleIrAPagina = (pagina: number) => {
+    if (pagina >= 1 && pagina <= totalPaginas) {
+      setPaginaActual(pagina);
+    }
+  };
+
+  const opcionesItemsPorPagina = [10, 20, 50, 100];
 
   // Helper para obtener el label del tipo
   const getTipoLabel = (tipo: TipoAve): string => {
@@ -382,40 +439,67 @@ export default function GastosScreen() {
             )}
           </View>
 
-          {/* Filtros */}
-          <View style={styles.filtrosContainer}>
-            <TouchableOpacity
-              style={[styles.filtroButton, filtroTipo === 'TODOS' && styles.filtroButtonActive]}
-              onPress={() => handleCambiarFiltro('TODOS')}
-            >
-              <Text style={[styles.filtroButtonText, filtroTipo === 'TODOS' && styles.filtroButtonTextActive]}>
-                Todos
-              </Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.filtroButton, filtroTipo === TipoAve.PONEDORA && styles.filtroButtonActive]}
-              onPress={() => handleCambiarFiltro(TipoAve.PONEDORA)}
-            >
-              <Text style={[styles.filtroButtonText, filtroTipo === TipoAve.PONEDORA && styles.filtroButtonTextActive]}>
-                Ponedoras
-              </Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.filtroButton, filtroTipo === TipoAve.POLLO_LEVANTE && styles.filtroButtonActive]}
-              onPress={() => handleCambiarFiltro(TipoAve.POLLO_LEVANTE)}
-            >
-              <Text style={[styles.filtroButtonText, filtroTipo === TipoAve.POLLO_LEVANTE && styles.filtroButtonTextActive]}>
-                Levantes
-              </Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.filtroButton, filtroTipo === TipoAve.POLLO_ENGORDE && styles.filtroButtonActive]}
-              onPress={() => handleCambiarFiltro(TipoAve.POLLO_ENGORDE)}
-            >
-              <Text style={[styles.filtroButtonText, filtroTipo === TipoAve.POLLO_ENGORDE && styles.filtroButtonTextActive]}>
-                Engorde
-              </Text>
-            </TouchableOpacity>
+          {/* Controles de vista y filtros */}
+          <View style={styles.controlesContainer}>
+            {/* Selector de vista */}
+            <View style={styles.vistaSelector}>
+              <TouchableOpacity
+                style={[styles.vistaButton, vistaActiva === 'lista' && styles.vistaButtonActive]}
+                onPress={() => setVistaActiva('lista')}
+              >
+                <Ionicons 
+                  name="list" 
+                  size={18} 
+                  color={vistaActiva === 'lista' ? colors.white : colors.textMedium} 
+                />
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.vistaButton, vistaActiva === 'grid' && styles.vistaButtonActive]}
+                onPress={() => setVistaActiva('grid')}
+              >
+                <Ionicons 
+                  name="grid" 
+                  size={18} 
+                  color={vistaActiva === 'grid' ? colors.white : colors.textMedium} 
+                />
+              </TouchableOpacity>
+            </View>
+
+            {/* Filtros */}
+            <View style={styles.filtrosContainer}>
+              <TouchableOpacity
+                style={[styles.filtroButton, filtroTipo === 'TODOS' && styles.filtroButtonActive]}
+                onPress={() => handleCambiarFiltro('TODOS')}
+              >
+                <Text style={[styles.filtroButtonText, filtroTipo === 'TODOS' && styles.filtroButtonTextActive]}>
+                  Todos
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.filtroButton, filtroTipo === TipoAve.PONEDORA && styles.filtroButtonActive]}
+                onPress={() => handleCambiarFiltro(TipoAve.PONEDORA)}
+              >
+                <Text style={[styles.filtroButtonText, filtroTipo === TipoAve.PONEDORA && styles.filtroButtonTextActive]}>
+                  Ponedoras
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.filtroButton, filtroTipo === TipoAve.POLLO_LEVANTE && styles.filtroButtonActive]}
+                onPress={() => handleCambiarFiltro(TipoAve.POLLO_LEVANTE)}
+              >
+                <Text style={[styles.filtroButtonText, filtroTipo === TipoAve.POLLO_LEVANTE && styles.filtroButtonTextActive]}>
+                  Levantes
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.filtroButton, filtroTipo === TipoAve.POLLO_ENGORDE && styles.filtroButtonActive]}
+                onPress={() => handleCambiarFiltro(TipoAve.POLLO_ENGORDE)}
+              >
+                <Text style={[styles.filtroButtonText, filtroTipo === TipoAve.POLLO_ENGORDE && styles.filtroButtonTextActive]}>
+                  Engorde
+                </Text>
+              </TouchableOpacity>
+            </View>
           </View>
 
           {/* Lista de gastos */}
@@ -435,127 +519,226 @@ export default function GastosScreen() {
             </View>
           ) : (
             <>
-              <FlatList
-                data={gastosPaginados}
-                keyExtractor={(item) => item.id}
-                renderItem={({ item: gasto }) => (
-                  <Card key={gasto.id} style={styles.gastoCard}>
-                    <View style={styles.gastoCardHeader}>
-                      <View style={styles.gastoCardMain}>
-                        <View style={styles.gastoCardTitleRow}>
-                          <Text style={styles.gastoConcepto}>{gasto.articuloNombre}</Text>
-                          <Text style={styles.gastoMonto}>RD${gasto.total.toFixed(2)}</Text>
-                        </View>
-                        <View style={styles.gastoCardMeta}>
-                          <View style={styles.gastoCardMetaItem}>
-                            <Ionicons name="calendar-outline" size={14} color={colors.textMedium} />
-                            <Text style={styles.gastoFecha}>
-                              {gasto.fecha.toLocaleDateString('es-DO', {
-                                day: '2-digit',
-                                month: 'short',
-                                year: 'numeric',
-                              })}
-                            </Text>
+              {/* Vista de lista */}
+              {vistaActiva === 'lista' ? (
+                <FlatList
+                  data={gastosPaginados}
+                  keyExtractor={(item) => item.id}
+                  renderItem={({ item: gasto }) => (
+                    <Card key={gasto.id} style={styles.gastoCard}>
+                      <View style={styles.gastoCardHeader}>
+                        <View style={styles.gastoCardMain}>
+                          <View style={styles.gastoCardTitleRow}>
+                            <Text style={styles.gastoConcepto}>{gasto.articuloNombre}</Text>
+                            <Text style={styles.gastoMonto}>RD${gasto.total.toFixed(2)}</Text>
                           </View>
-                          <View style={styles.gastoCardMetaItem}>
-                            <Ionicons name="cube-outline" size={14} color={colors.textMedium} />
-                            <Text style={styles.gastoCantidadPrecio}>
-                              {gasto.cantidad} × RD${gasto.precioUnitario?.toFixed(2) || '0.00'}
-                            </Text>
+                          <View style={styles.gastoCardMeta}>
+                            <View style={styles.gastoCardMetaItem}>
+                              <Ionicons name="calendar-outline" size={14} color={colors.textMedium} />
+                              <Text style={styles.gastoFecha}>
+                                {gasto.fecha.toLocaleDateString('es-DO', {
+                                  day: '2-digit',
+                                  month: 'short',
+                                  year: 'numeric',
+                                })}
+                              </Text>
+                            </View>
+                            <View style={styles.gastoCardMetaItem}>
+                              <Ionicons name="cube-outline" size={14} color={colors.textMedium} />
+                              <Text style={styles.gastoCantidadPrecio}>
+                                {gasto.cantidad} × RD${gasto.precioUnitario?.toFixed(2) || '0.00'}
+                              </Text>
+                            </View>
                           </View>
                         </View>
                       </View>
-                    </View>
-                    
-                    {gasto.loteId && (
-                      <View style={styles.gastoLoteInfo}>
-                        <View style={styles.gastoLoteInfoItem}>
-                          <Ionicons name="location-outline" size={14} color={colors.primary} />
-                          <Text style={styles.gastoLoteText}>
-                            {obtenerNombreLote(gasto.loteId, gasto.tipoLote)}
-                          </Text>
+                      
+                      {gasto.loteId && (
+                        <View style={styles.gastoLoteInfo}>
+                          <View style={styles.gastoLoteInfoItem}>
+                            <Ionicons name="location-outline" size={14} color={colors.primary} />
+                            <Text style={styles.gastoLoteText}>
+                              {obtenerNombreLote(gasto.loteId, gasto.tipoLote)}
+                            </Text>
+                          </View>
+                          <View style={[styles.gastoTipoBadge, getTipoBadgeStyle(gasto.tipoLote)]}>
+                            <Text style={styles.gastoTipoText}>
+                              {getTipoLabel(gasto.tipoLote)}
+                            </Text>
+                          </View>
                         </View>
+                      )}
+                      
+                      {gasto.descripcion && (
+                        <View style={styles.gastoDescripcionContainer}>
+                          <Text style={styles.gastoDescripcion}>{gasto.descripcion}</Text>
+                        </View>
+                      )}
+                    </Card>
+                  )}
+                  contentContainerStyle={styles.gastosListContent}
+                  scrollEnabled={false}
+                  ListEmptyComponent={() => null}
+                />
+              ) : (
+                // Vista de grid
+                <View style={styles.gridContainer}>
+                  {gastosPaginados.map((gasto) => (
+                    <Card key={gasto.id} style={styles.gastoGridCard}>
+                      <View style={styles.gastoGridHeader}>
                         <View style={[styles.gastoTipoBadge, getTipoBadgeStyle(gasto.tipoLote)]}>
                           <Text style={styles.gastoTipoText}>
                             {getTipoLabel(gasto.tipoLote)}
                           </Text>
                         </View>
+                        <Text style={styles.gastoGridMonto}>RD${gasto.total.toFixed(2)}</Text>
                       </View>
-                    )}
-                    
-                    {gasto.descripcion && (
-                      <View style={styles.gastoDescripcionContainer}>
-                        <Text style={styles.gastoDescripcion}>{gasto.descripcion}</Text>
+                      <Text style={styles.gastoGridConcepto} numberOfLines={2}>
+                        {gasto.articuloNombre}
+                      </Text>
+                      <View style={styles.gastoGridMeta}>
+                        <View style={styles.gastoGridMetaItem}>
+                          <Ionicons name="calendar-outline" size={12} color={colors.textMedium} />
+                          <Text style={styles.gastoGridFecha}>
+                            {gasto.fecha.toLocaleDateString('es-DO', {
+                              day: '2-digit',
+                              month: 'short',
+                            })}
+                          </Text>
+                        </View>
+                        <View style={styles.gastoGridMetaItem}>
+                          <Ionicons name="cube-outline" size={12} color={colors.textMedium} />
+                          <Text style={styles.gastoGridCantidad}>
+                            {gasto.cantidad}
+                          </Text>
+                        </View>
                       </View>
-                    )}
-                  </Card>
-                )}
-                contentContainerStyle={styles.gastosListContent}
-                scrollEnabled={false}
-                ListEmptyComponent={() => null}
-              />
+                      {gasto.loteId && (
+                        <View style={styles.gastoGridLote}>
+                          <Ionicons name="location-outline" size={12} color={colors.primary} />
+                          <Text style={styles.gastoGridLoteText} numberOfLines={1}>
+                            {obtenerNombreLote(gasto.loteId, gasto.tipoLote)}
+                          </Text>
+                        </View>
+                      )}
+                    </Card>
+                  ))}
+                </View>
+              )}
 
-              {/* Paginación */}
-              {totalPaginas > 1 && (
+              {/* Paginación robusta */}
+              {totalPaginas > 0 && (
                 <View style={styles.paginacionContainer}>
-                  <View style={styles.paginacionControls}>
-                    <TouchableOpacity
-                      style={[styles.paginacionButton, paginaActual === 1 && styles.paginacionButtonDisabled]}
-                      onPress={handleIrAPrimeraPagina}
-                      disabled={paginaActual === 1}
-                    >
-                      <Ionicons 
-                        name="chevrons-back" 
-                        size={18} 
-                        color={paginaActual === 1 ? colors.textLight : colors.primary} 
-                      />
-                    </TouchableOpacity>
-                    
-                    <TouchableOpacity
-                      style={[styles.paginacionButton, paginaActual === 1 && styles.paginacionButtonDisabled]}
-                      onPress={handlePaginaAnterior}
-                      disabled={paginaActual === 1}
-                    >
-                      <Ionicons 
-                        name="chevron-back" 
-                        size={20} 
-                        color={paginaActual === 1 ? colors.textLight : colors.primary} 
-                      />
-                    </TouchableOpacity>
-                    
-                    <View style={styles.paginacionInfo}>
-                      <Text style={styles.paginacionText}>
-                        {paginaActual} / {totalPaginas}
-                      </Text>
-                      <Text style={styles.paginacionSubtext}>
-                        {gastosPaginados.length} de {gastosFiltrados.length} gastos
-                      </Text>
+                  {/* Selector de items por página */}
+                  <View style={styles.paginacionTop}>
+                    <View style={styles.itemsPerPageContainer}>
+                      <Text style={styles.itemsPerPageLabel}>Mostrar:</Text>
+                      <View style={styles.itemsPerPageButtons}>
+                        {opcionesItemsPorPagina.map((opcion) => (
+                          <TouchableOpacity
+                            key={opcion}
+                            style={[
+                              styles.itemsPerPageButton,
+                              itemsPorPagina === opcion && styles.itemsPerPageButtonActive
+                            ]}
+                            onPress={() => {
+                              setItemsPorPagina(opcion);
+                              setPaginaActual(1);
+                            }}
+                          >
+                            <Text style={[
+                              styles.itemsPerPageButtonText,
+                              itemsPorPagina === opcion && styles.itemsPerPageButtonTextActive
+                            ]}>
+                              {opcion}
+                            </Text>
+                          </TouchableOpacity>
+                        ))}
+                      </View>
                     </View>
-                    
-                    <TouchableOpacity
-                      style={[styles.paginacionButton, paginaActual === totalPaginas && styles.paginacionButtonDisabled]}
-                      onPress={handleSiguientePagina}
-                      disabled={paginaActual === totalPaginas}
-                    >
-                      <Ionicons 
-                        name="chevron-forward" 
-                        size={20} 
-                        color={paginaActual === totalPaginas ? colors.textLight : colors.primary} 
-                      />
-                    </TouchableOpacity>
-                    
-                    <TouchableOpacity
-                      style={[styles.paginacionButton, paginaActual === totalPaginas && styles.paginacionButtonDisabled]}
-                      onPress={handleIrAUltimaPagina}
-                      disabled={paginaActual === totalPaginas}
-                    >
-                      <Ionicons 
-                        name="chevrons-forward" 
-                        size={18} 
-                        color={paginaActual === totalPaginas ? colors.textLight : colors.primary} 
-                      />
-                    </TouchableOpacity>
+                    <Text style={styles.paginacionInfoText}>
+                      {((paginaActual - 1) * itemsPorPagina) + 1}-{Math.min(paginaActual * itemsPorPagina, gastosFiltrados.length)} de {gastosFiltrados.length}
+                    </Text>
                   </View>
+
+                  {/* Controles de navegación */}
+                  {totalPaginas > 1 && (
+                    <View style={styles.paginacionControls}>
+                      <TouchableOpacity
+                        style={[styles.paginacionButton, paginaActual === 1 && styles.paginacionButtonDisabled]}
+                        onPress={handleIrAPrimeraPagina}
+                        disabled={paginaActual === 1}
+                      >
+                        <Ionicons 
+                          name="chevrons-back" 
+                          size={18} 
+                          color={paginaActual === 1 ? colors.textLight : colors.primary} 
+                        />
+                      </TouchableOpacity>
+                      
+                      <TouchableOpacity
+                        style={[styles.paginacionButton, paginaActual === 1 && styles.paginacionButtonDisabled]}
+                        onPress={handlePaginaAnterior}
+                        disabled={paginaActual === 1}
+                      >
+                        <Ionicons 
+                          name="chevron-back" 
+                          size={20} 
+                          color={paginaActual === 1 ? colors.textLight : colors.primary} 
+                        />
+                      </TouchableOpacity>
+                      
+                      {/* Números de página */}
+                      <View style={styles.paginasNumeros}>
+                        {paginasVisibles.map((pagina, index) => (
+                          <React.Fragment key={index}>
+                            {pagina === '...' ? (
+                              <Text style={styles.paginaEllipsis}>...</Text>
+                            ) : (
+                              <TouchableOpacity
+                                style={[
+                                  styles.paginaNumero,
+                                  paginaActual === pagina && styles.paginaNumeroActive
+                                ]}
+                                onPress={() => handleIrAPagina(pagina as number)}
+                              >
+                                <Text style={[
+                                  styles.paginaNumeroText,
+                                  paginaActual === pagina && styles.paginaNumeroTextActive
+                                ]}>
+                                  {pagina}
+                                </Text>
+                              </TouchableOpacity>
+                            )}
+                          </React.Fragment>
+                        ))}
+                      </View>
+                      
+                      <TouchableOpacity
+                        style={[styles.paginacionButton, paginaActual === totalPaginas && styles.paginacionButtonDisabled]}
+                        onPress={handleSiguientePagina}
+                        disabled={paginaActual === totalPaginas}
+                      >
+                        <Ionicons 
+                          name="chevron-forward" 
+                          size={20} 
+                          color={paginaActual === totalPaginas ? colors.textLight : colors.primary} 
+                        />
+                      </TouchableOpacity>
+                      
+                      <TouchableOpacity
+                        style={[styles.paginacionButton, paginaActual === totalPaginas && styles.paginacionButtonDisabled]}
+                        onPress={handleIrAUltimaPagina}
+                        disabled={paginaActual === totalPaginas}
+                      >
+                        <Ionicons 
+                          name="chevrons-forward" 
+                          size={18} 
+                          color={paginaActual === totalPaginas ? colors.textLight : colors.primary} 
+                        />
+                      </TouchableOpacity>
+                    </View>
+                  )}
                 </View>
               )}
 
@@ -766,11 +949,34 @@ const styles = StyleSheet.create({
     color: colors.textDark,
     padding: 0,
   },
+  // Controles de vista y filtros
+  controlesContainer: {
+    marginBottom: 20,
+  },
+  vistaSelector: {
+    flexDirection: 'row',
+    gap: 8,
+    marginBottom: 12,
+    backgroundColor: colors.white,
+    borderRadius: 8,
+    padding: 4,
+    alignSelf: 'flex-start',
+    borderWidth: 1,
+    borderColor: colors.veryLightGray,
+  },
+  vistaButton: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 6,
+    backgroundColor: 'transparent',
+  },
+  vistaButtonActive: {
+    backgroundColor: colors.primary,
+  },
   // Filtros
   filtrosContainer: {
     flexDirection: 'row',
     gap: 8,
-    marginBottom: 20,
     flexWrap: 'wrap',
   },
   filtroButton: {
@@ -901,7 +1107,74 @@ const styles = StyleSheet.create({
     color: colors.textMedium,
     lineHeight: 20,
   },
-  // Paginación
+  // Vista Grid
+  gridContainer: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 12,
+    marginBottom: 20,
+  },
+  gastoGridCard: {
+    width: '47%',
+    padding: 14,
+    borderRadius: 12,
+    shadowColor: colors.black,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  gastoGridHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    marginBottom: 10,
+  },
+  gastoGridMonto: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: colors.danger,
+  },
+  gastoGridConcepto: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: colors.textDark,
+    marginBottom: 8,
+    minHeight: 40,
+  },
+  gastoGridMeta: {
+    flexDirection: 'row',
+    gap: 12,
+    marginBottom: 8,
+  },
+  gastoGridMetaItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  gastoGridFecha: {
+    fontSize: 11,
+    color: colors.textMedium,
+  },
+  gastoGridCantidad: {
+    fontSize: 11,
+    color: colors.textMedium,
+  },
+  gastoGridLote: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    marginTop: 8,
+    paddingTop: 8,
+    borderTopWidth: 1,
+    borderTopColor: colors.veryLightGray,
+  },
+  gastoGridLoteText: {
+    fontSize: 11,
+    color: colors.textDark,
+    flex: 1,
+  },
+  // Paginación robusta
   paginacionContainer: {
     marginTop: 20,
     marginBottom: 12,
@@ -923,16 +1196,64 @@ const styles = StyleSheet.create({
       },
     }),
   },
+  paginacionTop: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 16,
+    paddingBottom: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.veryLightGray,
+  },
+  itemsPerPageContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  itemsPerPageLabel: {
+    fontSize: 13,
+    color: colors.textMedium,
+    fontWeight: '500',
+  },
+  itemsPerPageButtons: {
+    flexDirection: 'row',
+    gap: 4,
+  },
+  itemsPerPageButton: {
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 6,
+    backgroundColor: colors.background,
+    borderWidth: 1,
+    borderColor: colors.veryLightGray,
+  },
+  itemsPerPageButtonActive: {
+    backgroundColor: colors.primary,
+    borderColor: colors.primary,
+  },
+  itemsPerPageButtonText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: colors.textDark,
+  },
+  itemsPerPageButtonTextActive: {
+    color: colors.white,
+  },
+  paginacionInfoText: {
+    fontSize: 13,
+    color: colors.textMedium,
+    fontWeight: '500',
+  },
   paginacionControls: {
     flexDirection: 'row',
     justifyContent: 'center',
     alignItems: 'center',
-    gap: 12,
+    gap: 8,
   },
   paginacionButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
     backgroundColor: colors.background,
     borderWidth: 1,
     borderColor: colors.veryLightGray,
@@ -943,20 +1264,39 @@ const styles = StyleSheet.create({
     opacity: 0.4,
     backgroundColor: colors.veryLightGray,
   },
-  paginacionInfo: {
+  paginasNumeros: {
+    flexDirection: 'row',
     alignItems: 'center',
-    minWidth: 100,
-    paddingHorizontal: 16,
+    gap: 4,
+    paddingHorizontal: 8,
   },
-  paginacionText: {
-    fontSize: 16,
+  paginaNumero: {
+    minWidth: 32,
+    height: 32,
+    borderRadius: 8,
+    backgroundColor: colors.background,
+    borderWidth: 1,
+    borderColor: colors.veryLightGray,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 8,
+  },
+  paginaNumeroActive: {
+    backgroundColor: colors.primary,
+    borderColor: colors.primary,
+  },
+  paginaNumeroText: {
+    fontSize: 13,
     fontWeight: '600',
     color: colors.textDark,
   },
-  paginacionSubtext: {
-    fontSize: 12,
+  paginaNumeroTextActive: {
+    color: colors.white,
+  },
+  paginaEllipsis: {
+    fontSize: 14,
     color: colors.textMedium,
-    marginTop: 2,
+    paddingHorizontal: 4,
   },
   // Info de resultados
   resultsInfo: {

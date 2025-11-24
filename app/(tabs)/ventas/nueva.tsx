@@ -11,25 +11,23 @@
 import { useRouter } from 'expo-router';
 import React, { useState } from 'react';
 import {
-  View,
-  StyleSheet,
   Alert,
   KeyboardAvoidingView,
   Platform,
+  StyleSheet,
+  View
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
 
-import AppHeader from '../../../src/components/layouts/AppHeader';
-import { ProductSelector } from '../../../src/components/ventas/ProductSelector';
 import { ClienteSelector } from '../../../src/components/ventas/ClienteSelector';
-import { VentaForm } from '../../../src/components/ventas/VentaForm';
+import { ProductSelector } from '../../../src/components/ventas/ProductSelector';
 import { ResumenVenta } from '../../../src/components/ventas/ResumenVenta';
+import { VentaForm } from '../../../src/components/ventas/VentaForm';
 import { colors } from '../../../src/constants/colors';
-import { useVentas } from '../../../src/hooks/useVentas';
-import { useInventario } from '../../../src/hooks/useInventario';
 import { useClientes } from '../../../src/hooks/useClientes';
+import { useInventario } from '../../../src/hooks/useInventario';
+import { useVentas } from '../../../src/hooks/useVentas';
+import { CrearVenta, ItemVenta } from '../../../src/services/ventas.service';
 import { Cliente, MetodoPago, Producto } from '../../../src/types/facturacion';
-import { ItemVenta, CrearVenta } from '../../../src/services/ventas.service';
 
 export default function NuevaVentaScreen() {
   const router = useRouter();
@@ -159,16 +157,7 @@ export default function NuevaVentaScreen() {
   };
 
   return (
-    <SafeAreaView style={styles.container} edges={['top']}>
-      <AppHeader
-        title="Nueva Venta"
-        showBack={true}
-        showProfile={false}
-        showNotifications={false}
-        statusBarStyle="dark"
-        backgroundColor="transparent"
-        onBackPress={() => router.back()}
-      />
+    <View style={styles.container}>
       <KeyboardAvoidingView 
         style={styles.keyboardView}
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
@@ -221,7 +210,7 @@ export default function NuevaVentaScreen() {
           />
         )}
       </KeyboardAvoidingView>
-    </SafeAreaView>
+    </View>
   );
 }
 

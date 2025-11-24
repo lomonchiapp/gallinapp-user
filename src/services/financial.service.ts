@@ -128,10 +128,13 @@ export const calcularEstadisticasFinancieras = async (
     let avesTotales = 0;
     
     for (const lote of [...lotesPonedoras, ...lotesEngorde, ...lotesIsraelies]) {
-      const registrosMortalidad = await obtenerRegistrosMortalidad(lote.id, lote.tipo || 'ponedoras');
+      // Usar el tipo del lote directamente (ya es TipoAve enum)
+      const tipoLote = lote.tipo;
+      const registrosMortalidad = await obtenerRegistrosMortalidad(lote.id, tipoLote);
       const muertesLote = registrosMortalidad.reduce((total, registro) => total + registro.cantidad, 0);
       muertesTotales += muertesLote;
-      avesTotales += lote.numeroAves;
+      // Usar cantidadInicial si existe, sino cantidadActual
+      avesTotales += lote.cantidadInicial || lote.cantidadActual || 0;
     }
     
     const tasaMortalidad = avesTotales > 0 ? (muertesTotales / avesTotales) * 100 : 0;
@@ -203,7 +206,8 @@ export const calcularEstadisticasLote = async (
     // Calcular mortalidad
     const registrosMortalidad = await obtenerRegistrosMortalidad(lote.id, tipoLote);
     const muertes = registrosMortalidad.reduce((total, registro) => total + registro.cantidad, 0);
-    const tasaMortalidad = lote.numeroAves > 0 ? (muertes / lote.numeroAves) * 100 : 0;
+    const cantidadInicial = lote.cantidadInicial || lote.cantidadActual || 0;
+    const tasaMortalidad = cantidadInicial > 0 ? (muertes / cantidadInicial) * 100 : 0;
     
     // Calcular métricas
     const ganancias = ingresos - gastos;
