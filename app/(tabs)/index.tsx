@@ -158,34 +158,6 @@ export default function DashboardScreen() {
         </TouchableOpacity>
       </View>
 
-      {/* Resumen Financiero Principal */}
-      <Card style={styles.mainFinanceCard}>
-        <View style={styles.mainFinanceHeader}>
-          <Ionicons name="trending-up" size={28} color={colors.success} />
-          <Text style={styles.mainFinanceTitle}>Resumen Financiero</Text>
-        </View>
-        
-        <View style={styles.mainFinanceStats}>
-          <View style={styles.mainFinanceStat}>
-            <Text style={styles.mainFinanceLabel}>Ganancias Totales</Text>
-            <Text style={[styles.mainFinanceValue, { color: colors.success }]}>
-              {isLoading ? '...' : formatearMoneda(estadisticasGenerales?.gananciasTotal || 0)}
-            </Text>
-          </View>
-          
-          <View style={styles.mainFinanceDivider} />
-          
-          <View style={styles.mainFinanceStat}>
-            <Text style={styles.mainFinanceLabel}>Margen de Ganancia</Text>
-            <Text style={[styles.mainFinanceValue, { 
-              color: (estadisticasGenerales?.margenGanancia || 0) > 0 ? colors.success : colors.danger 
-            }]}>
-              {isLoading ? '...' : formatearPorcentaje(estadisticasGenerales?.margenGanancia || 0)}
-            </Text>
-          </View>
-        </View>
-      </Card>
-
       {/* Estadísticas por Tipo de Negocio */}
       <View style={styles.businessTypesContainer}>
         <Card style={StyleSheet.flatten([styles.businessTypeCard, { borderLeftColor: colors.primary }])}>
@@ -219,44 +191,6 @@ export default function DashboardScreen() {
           </Text>
         </Card>
       </View>
-
-      {/* Métricas Clave */}
-      <Card style={styles.metricsCard}>
-        <Text style={styles.cardTitle}>Métricas Clave del Negocio</Text>
-        <View style={styles.metricsGrid}>
-          <View style={styles.metricItem}>
-            <Ionicons name="cash-outline" size={24} color={colors.primary} />
-            <Text style={styles.metricValue}>
-              {formatearMoneda(estadisticasGenerales?.ingresosTotal || 0)}
-            </Text>
-            <Text style={styles.metricLabel}>Ingresos Totales</Text>
-          </View>
-          
-          <View style={styles.metricItem}>
-            <Ionicons name="receipt-outline" size={24} color={colors.danger} />
-            <Text style={[styles.metricValue, { color: colors.danger }]}>
-              {formatearMoneda(estadisticasGenerales?.gastosTotal || 0)}
-            </Text>
-            <Text style={styles.metricLabel}>Gastos Totales</Text>
-          </View>
-          
-          <View style={styles.metricItem}>
-            <Ionicons name="trending-up-outline" size={24} color={colors.success} />
-            <Text style={styles.metricValue}>
-              {formatearPorcentaje(estadisticasGenerales?.retornoInversion || 0)}
-            </Text>
-            <Text style={styles.metricLabel}>ROI</Text>
-          </View>
-          
-          <View style={styles.metricItem}>
-            <Ionicons name="warning-outline" size={24} color={colors.warning} />
-            <Text style={styles.metricValue}>
-              {formatearPorcentaje(estadisticasGenerales?.tasaMortalidad || 0)}
-            </Text>
-            <Text style={styles.metricLabel}>Mortalidad</Text>
-          </View>
-        </View>
-      </Card>
 
       {/* Estadísticas de Costos de Producción */}
       <CostProductionStats isLoading={isLoading} />
@@ -395,52 +329,6 @@ const styles = StyleSheet.create({
     elevation: 2,
   },
   
-  // Main Finance Card
-  mainFinanceCard: {
-    marginBottom: 20,
-    backgroundColor: colors.white,
-    borderRadius: 16,
-    padding: 20,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 4,
-  },
-  mainFinanceHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 16,
-  },
-  mainFinanceTitle: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: colors.textDark,
-    marginLeft: 12,
-  },
-  mainFinanceStats: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  mainFinanceStat: {
-    flex: 1,
-    alignItems: 'center',
-  },
-  mainFinanceLabel: {
-    fontSize: 14,
-    color: colors.textMedium,
-    marginBottom: 4,
-  },
-  mainFinanceValue: {
-    fontSize: 24,
-    fontWeight: 'bold',
-  },
-  mainFinanceDivider: {
-    width: 1,
-    height: 40,
-    backgroundColor: colors.veryLightGray,
-    marginHorizontal: 16,
-  },
   
   // Business Types
   businessTypesContainer: {
@@ -480,36 +368,6 @@ const styles = StyleSheet.create({
   businessTypeSubtext: {
     fontSize: 11,
     color: colors.textLight,
-  },
-  
-  // Metrics Card
-  metricsCard: {
-    marginBottom: 20,
-  },
-  metricsGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    justifyContent: 'space-between',
-  },
-  metricItem: {
-    width: '48%',
-    alignItems: 'center',
-    padding: 16,
-    backgroundColor: colors.veryLightGray,
-    borderRadius: 12,
-    marginBottom: 12,
-  },
-  metricValue: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: colors.textDark,
-    marginTop: 8,
-    marginBottom: 4,
-  },
-  metricLabel: {
-    fontSize: 12,
-    color: colors.textMedium,
-    textAlign: 'center',
   },
   
   // Top Lotes

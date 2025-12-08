@@ -371,7 +371,8 @@ export const obtenerRegistrosHuevos = async (loteId: string): Promise<HuevoRegis
         id: doc.id,
         loteId: data.loteId,
         fecha: data.fecha.toDate ? data.fecha.toDate() : new Date(data.fecha),
-        cantidad: data.cantidadHuevos || 0, // Usar cantidadHuevos en lugar de cantidad
+        cantidad: data.cantidadHuevos || data.cantidad || 0, // El campo en BD es cantidadHuevos según registrarProduccionHuevos
+        cantidadVendida: data.cantidadVendida || 0, // Cantidad ya vendida de este registro
       };
     });
   } catch (error) {
@@ -681,14 +682,86 @@ export const registrarProduccionHuevos = async (registro: {
 };
 
 /**
+ * Actualizar un registro de producción de huevos
+ */
+export const actualizarRegistroHuevos = async (
+  registroId: string,
+  datos: {
+    fecha?: Date;
+    cantidadHuevos?: number;
+    observaciones?: string;
+  }
+): Promise<void> => {
+  try {
+    const userId = getCurrentUserId();
+    if (!userId) throw new Error('Usuario no autenticado');
+
+    const registroRef = doc(db, HUEVOS_COLLECTION, registroId);
+    const updateData: any = {
+      updatedAt: serverTimestamp()
+    };
+
+    if (datos.fecha !== undefined) {
+      updateData.fecha = datos.fecha;
+    }
+    if (datos.cantidadHuevos !== undefined) {
+      updateData.cantidadHuevos = datos.cantidadHuevos;
+    }
+    if (datos.observaciones !== undefined) {
+      if (datos.observaciones.trim()) {
+        updateData.observaciones = datos.observaciones.trim();
+      } else {
+        updateData.observaciones = null;
+      }
+    }
+
+    await updateDoc(registroRef, updateData);
+  } catch (error) {
+    console.error('Error al actualizar registro de huevos:', error);
+    throw error;
+  }
+};
+
+/**
+ * Eliminar un registro de producción de huevos
+ */
+export const eliminarRegistroHuevos = async (registroId: string): Promise<void> => {
+  try {
+    const userId = getCurrentUserId();
+    if (!userId) throw new Error('Usuario no autenticado');
+
+    const registroRef = doc(db, HUEVOS_COLLECTION, registroId);
+    await deleteDoc(registroRef);
+  } catch (error) {
+    console.error('Error al eliminar registro de huevos:', error);
+    throw error;
+  }
+};
+
+/**
  * Eliminar un lote de gallinas ponedoras
+ * Solo permite eliminar lotes que NO estén activos
  */
 export const eliminarLotePonedora = async (id: string): Promise<void> => {
   try {
     const userId = getCurrentUserId();
     if (!userId) throw new Error('Usuario no autenticado');
 
+    // Obtener el lote primero para validar su estado
     const loteRef = doc(db, LOTES_COLLECTION, id);
+    const loteDoc = await getDoc(loteRef);
+    
+    if (!loteDoc.exists()) {
+      throw new Error('Lote no encontrado');
+    }
+
+    const loteData = loteDoc.data();
+    
+    // Validar que el lote NO esté activo
+    if (loteData.estado === EstadoLote.ACTIVO) {
+      throw new Error('No se puede eliminar un lote activo. Debe finalizarlo primero.');
+    }
+
     await deleteDoc(loteRef);
   } catch (error) {
     console.error('Error al eliminar lote de ponedoras:', error);
@@ -697,7 +770,39 @@ export const eliminarLotePonedora = async (id: string): Promise<void> => {
 };
 
 /**
- * Obtener todos los registros de producción de huevos del usuario
+ * Obtener todos los registros de producción de huevos del usuario (estructura nueva)
+ */
+export const obtenerTodosRegistrosHuevos = async (): Promise<HuevoRegistro[]> => {
+  try {
+    const userId = getCurrentUserId();
+    if (!userId) return [];
+    
+    const q = query(
+      collection(db, HUEVOS_COLLECTION),
+      where('createdBy', '==', userId),
+      orderBy('fecha', 'desc')
+    );
+    
+    const querySnapshot = await getDocs(q);
+    
+    return querySnapshot.docs.map(doc => {
+      const data = doc.data();
+      return {
+        id: doc.id,
+        loteId: data.loteId,
+        fecha: data.fecha.toDate ? data.fecha.toDate() : new Date(data.fecha),
+        cantidad: data.cantidadHuevos || data.cantidad || 0,
+        cantidadVendida: data.cantidadVendida || 0,
+      };
+    });
+  } catch (error) {
+    console.error('Error al obtener todos los registros de huevos:', error);
+    return [];
+  }
+};
+
+/**
+ * Obtener todos los registros de producción de huevos del usuario (estructura antigua - para compatibilidad)
  */
 export const obtenerTodosRegistrosProduccion = async (): Promise<RegistroDiarioPonedora[]> => {
   try {

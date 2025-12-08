@@ -39,6 +39,16 @@ export interface AppConfig {
     formato: string;
   };
   
+  // Configuración de notificaciones/alertas
+  notificaciones: {
+    alertasHabilitadas: boolean;
+    mostrarAlertasExito: boolean;
+    mostrarAlertasError: boolean;
+    mostrarAlertasConfirmacion: boolean;
+    sonidoAlertas: boolean;
+    vibrarEnAlertas: boolean;
+  };
+  
   // Metadatos
   id: string;
   updatedAt: Date;
@@ -83,6 +93,16 @@ class ConfigService {
       prefijo: 'FAC',
       siguienteNumero: 1,
       formato: '{prefijo}-{numero:4}',
+    },
+    
+    // Configuración de notificaciones/alertas
+    notificaciones: {
+      alertasHabilitadas: true,
+      mostrarAlertasExito: true,
+      mostrarAlertasError: true,
+      mostrarAlertasConfirmacion: true,
+      sonidoAlertas: true,
+      vibrarEnAlertas: true,
     },
   };
 

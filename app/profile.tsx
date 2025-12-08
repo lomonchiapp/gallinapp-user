@@ -5,85 +5,45 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import React, { useState } from 'react';
-import { Alert, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Alert, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { colors } from '../src/constants/colors';
-import { getExpoPushToken, getUserPushToken, sendLocalPushNotification } from '../src/services/push-notifications.service';
 import { useAuthStore } from '../src/stores/authStore';
 
 export default function ProfileScreen() {
   const router = useRouter();
-  const { user, logout } = useAuthStore();
-  const [isTestingPush, setIsTestingPush] = useState(false);
+  const { user, logout, updateProfile, isLoading } = useAuthStore();
   const insets = useSafeAreaInsets();
+  const [isEditing, setIsEditing] = useState(false);
+  const [displayName, setDisplayName] = useState(user?.displayName || '');
 
   const handleLogout = async () => {
     await logout();
     router.replace('/auth/login');
   };
 
-  // 🧪 FUNCIÓN PARA TESTEAR PUSH NOTIFICATIONS
-  const handleTestPushNotification = async () => {
-    try {
-      setIsTestingPush(true);
-      console.log('🧪 Iniciando test de push notification...');
-      
-      await sendLocalPushNotification(
-        '🐔 Test de Bienestar Animal',
-        'Si ves esta notificación, ¡el sistema funciona correctamente!',
-        { 
-          test: true,
-          timestamp: new Date().toISOString()
-        }
-      );
-      
-      Alert.alert(
-        '✅ Notificación Enviada',
-        'Deberías ver una notificación en unos segundos. Si la app está en primer plano, aparecerá como banner. Si está en background, aparecerá en el área de notificaciones.',
-        [{ text: 'OK' }]
-      );
-    } catch (error) {
-      console.error('❌ Error al enviar notificación de prueba:', error);
-      Alert.alert(
-        '❌ Error',
-        'No se pudo enviar la notificación. Verifica los logs de consola.',
-        [{ text: 'OK' }]
-      );
-    } finally {
-      setIsTestingPush(false);
-    }
+  const handleEditProfile = () => {
+    setIsEditing(true);
+    setDisplayName(user?.displayName || '');
   };
 
-  // 🔑 FUNCIÓN PARA VER TU TOKEN
-  const handleShowToken = async () => {
+  const handleCancelEdit = () => {
+    setIsEditing(false);
+    setDisplayName(user?.displayName || '');
+  };
+
+  const handleSaveProfile = async () => {
+    if (!displayName.trim()) {
+      Alert.alert('Error', 'El nombre no puede estar vacío');
+      return;
+    }
+
     try {
-      console.log('🔍 Buscando token...');
-      
-      // Intentar obtener token del dispositivo
-      const deviceToken = await getExpoPushToken();
-      
-      // Intentar obtener token guardado en Firebase
-      const firebaseToken = await getUserPushToken();
-      
-      if (deviceToken || firebaseToken) {
-        Alert.alert(
-          '🔑 Token de Push Notifications',
-          `Token en dispositivo:\n${deviceToken || 'No disponible'}\n\nToken en Firebase:\n${firebaseToken || 'No guardado'}`,
-          [
-            { text: 'Copiar', onPress: () => console.log('Token:', deviceToken || firebaseToken) },
-            { text: 'Cerrar' }
-          ]
-        );
-      } else {
-        Alert.alert(
-          '⚠️ Sin Token',
-          'No se pudo obtener el token. Asegúrate de:\n\n1. Estar en un dispositivo físico (no emulador)\n2. Haber aceptado los permisos de notificaciones\n3. Tener conexión a internet',
-          [{ text: 'OK' }]
-        );
-      }
-    } catch (error) {
-      console.error('❌ Error al obtener token:', error);
-      Alert.alert('❌ Error', 'No se pudo obtener el token', [{ text: 'OK' }]);
+      await updateProfile(displayName.trim());
+      setIsEditing(false);
+      Alert.alert('Éxito', 'Perfil actualizado correctamente');
+    } catch (error: any) {
+      Alert.alert('Error', error.message || 'No se pudo actualizar el perfil');
     }
   };
 
@@ -110,9 +70,19 @@ export default function ProfileScreen() {
           
           <View style={styles.infoItem}>
             <Ionicons name="person-outline" size={24} color={colors.primary} style={styles.infoIcon} />
-            <View>
+            <View style={styles.infoContent}>
               <Text style={styles.infoLabel}>Nombre</Text>
-              <Text style={styles.infoValue}>{user?.displayName || 'No especificado'}</Text>
+              {isEditing ? (
+                <TextInput
+                  style={styles.infoInput}
+                  value={displayName}
+                  onChangeText={setDisplayName}
+                  placeholder="Tu nombre"
+                  autoFocus
+                />
+              ) : (
+                <Text style={styles.infoValue}>{user?.displayName || 'No especificado'}</Text>
+              )}
             </View>
           </View>
           
@@ -133,45 +103,30 @@ export default function ProfileScreen() {
           </View>
         </View>
 
-        <TouchableOpacity style={styles.editButton}>
-          <Text style={styles.editButtonText}>Editar Perfil</Text>
-        </TouchableOpacity>
-
-        {/* 🧪 SECCIÓN DE TESTING DE PUSH NOTIFICATIONS */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>🧪 Testing - Push Notifications</Text>
-          <Text style={styles.sectionDescription}>
-            Prueba el sistema de notificaciones push del monitoreo de bienestar animal
-          </Text>
-          
-          <TouchableOpacity 
-            style={[styles.testButton, isTestingPush && styles.testButtonDisabled]} 
-            onPress={handleTestPushNotification}
-            disabled={isTestingPush}
-          >
-            <Ionicons name="notifications-outline" size={24} color={colors.white} style={styles.testButtonIcon} />
-            <Text style={styles.testButtonText}>
-              {isTestingPush ? 'Enviando...' : '📱 Enviar Notificación de Prueba'}
-            </Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity 
-            style={styles.testButtonSecondary} 
-            onPress={handleShowToken}
-          >
-            <Ionicons name="key-outline" size={24} color={colors.primary} style={styles.testButtonIcon} />
-            <Text style={styles.testButtonSecondaryText}>
-              🔑 Ver Token de Push
-            </Text>
-          </TouchableOpacity>
-
-          <View style={styles.testInfo}>
-            <Ionicons name="information-circle-outline" size={20} color={colors.mediumGray} />
-            <Text style={styles.testInfoText}>
-              Estas notificaciones son locales (para testing). Las alertas reales de bienestar animal se envían automáticamente cuando se detectan problemas.
-            </Text>
+        {isEditing ? (
+          <View style={styles.editActions}>
+            <TouchableOpacity 
+              style={[styles.editButton, styles.cancelButton]} 
+              onPress={handleCancelEdit}
+              disabled={isLoading}
+            >
+              <Text style={styles.cancelButtonText}>Cancelar</Text>
+            </TouchableOpacity>
+            <TouchableOpacity 
+              style={[styles.editButton, styles.saveButton]} 
+              onPress={handleSaveProfile}
+              disabled={isLoading}
+            >
+              <Text style={styles.saveButtonText}>
+                {isLoading ? 'Guardando...' : 'Guardar'}
+              </Text>
+            </TouchableOpacity>
           </View>
-        </View>
+        ) : (
+          <TouchableOpacity style={styles.editButton} onPress={handleEditProfile}>
+            <Text style={styles.editButtonText}>Editar Perfil</Text>
+          </TouchableOpacity>
+        )}
 
         <TouchableOpacity style={styles.logoutButton} onPress={handleLogout}>
           <Ionicons name="log-out-outline" size={24} color={colors.white} style={styles.logoutIcon} />
@@ -247,6 +202,9 @@ const styles = StyleSheet.create({
   infoIcon: {
     marginRight: 16,
   },
+  infoContent: {
+    flex: 1,
+  },
   infoLabel: {
     fontSize: 14,
     color: colors.textMedium,
@@ -255,6 +213,14 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: colors.textDark,
     marginTop: 2,
+  },
+  infoInput: {
+    fontSize: 16,
+    color: colors.textDark,
+    marginTop: 2,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.primary,
+    paddingVertical: 4,
   },
   editButton: {
     backgroundColor: colors.white,
@@ -268,65 +234,31 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: 'bold',
   },
-  // 🧪 Estilos para sección de testing de push notifications
-  sectionDescription: {
-    fontSize: 14,
-    color: colors.mediumGray,
-    marginTop: 8,
-    marginBottom: 16,
-    lineHeight: 20,
-  },
-  testButton: {
-    backgroundColor: colors.primary,
-    padding: 16,
-    borderRadius: 8,
+  editActions: {
     flexDirection: 'row',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 12,
+    marginTop: 16,
+    marginHorizontal: 16,
+    gap: 12,
   },
-  testButtonDisabled: {
-    backgroundColor: colors.mediumGray,
-    opacity: 0.6,
-  },
-  testButtonSecondary: {
+  cancelButton: {
+    flex: 1,
     backgroundColor: colors.white,
-    padding: 16,
-    borderRadius: 8,
-    flexDirection: 'row',
-    justifyContent: 'center',
-    alignItems: 'center',
-    borderWidth: 2,
-    borderColor: colors.primary,
-    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: colors.veryLightGray,
   },
-  testButtonIcon: {
-    marginRight: 8,
+  cancelButtonText: {
+    color: colors.textDark,
+    fontSize: 16,
+    fontWeight: 'bold',
   },
-  testButtonText: {
+  saveButton: {
+    flex: 1,
+    backgroundColor: colors.primary,
+  },
+  saveButtonText: {
     color: colors.white,
     fontSize: 16,
     fontWeight: 'bold',
-  },
-  testButtonSecondaryText: {
-    color: colors.primary,
-    fontSize: 16,
-    fontWeight: 'bold',
-  },
-  testInfo: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    backgroundColor: colors.lightGray,
-    padding: 12,
-    borderRadius: 8,
-    marginTop: 8,
-  },
-  testInfoText: {
-    flex: 1,
-    fontSize: 13,
-    color: colors.mediumGray,
-    marginLeft: 8,
-    lineHeight: 18,
   },
   logoutButton: {
     backgroundColor: colors.error,

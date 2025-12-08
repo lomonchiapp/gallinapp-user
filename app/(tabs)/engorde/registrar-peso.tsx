@@ -18,10 +18,11 @@ import Card from '../../../src/components/ui/Card';
 import Input from '../../../src/components/ui/Input';
 import { colors } from '../../../src/constants/colors';
 import { registrarPeso } from '../../../src/services/peso.service';
+import { invalidateInventarioCache } from '../../../src/services/inventario.service';
 import { useEngordeStore } from '../../../src/stores/engordeStore';
 import { TipoAve } from '../../../src/types';
 import { formatDate } from '../../../src/utils/dateUtils';
-import { WeightUnit, WeightValue, convertToPounds, formatWeight, getUnitLabel, validateWeight } from '../../../src/utils/weightUtils';
+import { WeightUnit, WeightValue, convertToPounds, convertToKg, formatWeight, getUnitLabel, validateWeight } from '../../../src/utils/weightUtils';
 
 export default function RegistrarPesoEngordeScreen() {
   const { loteId } = useLocalSearchParams<{ loteId: string }>();
@@ -73,7 +74,9 @@ export default function RegistrarPesoEngordeScreen() {
     if (pesosValidos.length === 0) {
       return { 
         totalLibras: 0, 
-        promedioLibras: 0, 
+        promedioLibras: 0,
+        totalKg: 0,
+        promedioKg: 0, 
         totalUnidadActual: 0,
         promedioUnidadActual: 0,
         completados: 0, 
@@ -81,9 +84,13 @@ export default function RegistrarPesoEngordeScreen() {
       };
     }
 
-    // Calcular totales en libras (unidad estándar del sistema)
+    // Calcular totales en libras (para mostrar al usuario)
     const totalLibras = pesosValidos.reduce((sum, peso) => sum + convertToPounds(peso), 0);
     const promedioLibras = totalLibras / pesosValidos.length;
+    
+    // Calcular totales en kg (para guardar en BD)
+    const totalKg = pesosValidos.reduce((sum, peso) => sum + convertToKg(peso), 0);
+    const promedioKg = totalKg / pesosValidos.length;
     
     // Calcular totales en la unidad actual para mostrar
     const totalUnidadActual = pesosValidos.reduce((sum, peso) => sum + peso.value, 0);
@@ -94,7 +101,9 @@ export default function RegistrarPesoEngordeScreen() {
 
     return { 
       totalLibras, 
-      promedioLibras, 
+      promedioLibras,
+      totalKg,
+      promedioKg, 
       totalUnidadActual,
       promedioUnidadActual,
       completados, 
@@ -137,12 +146,27 @@ export default function RegistrarPesoEngordeScreen() {
 
     setIsLoading(true);
     try {
-      // Convertir todos los pesos a libras (unidad estándar del sistema)
-      const pesosEnLibras = pesosIndividuales
+      // Convertir todos los pesos a kg (unidad de almacenamiento en BD)
+      const pesosEnKg = pesosIndividuales
         .map(p => parseFloat(p))
-        .map(p => convertToPounds({ value: p, unit: unidadPeso }));
+        .map(p => convertToKg({ value: p, unit: unidadPeso }));
 
       const estadisticas = calcularEstadisticas();
+
+      // Validar que el promedio en kg sea razonable (no más de 5 kg = ~11 libras)
+      // Si es mayor, probablemente hay un error en la conversión
+      if (estadisticas.promedioKg > 5) {
+        console.error(`❌ [RegistrarPeso] Error: peso promedio en kg es sospechosamente alto: ${estadisticas.promedioKg.toFixed(2)} kg`);
+        console.error(`❌ [RegistrarPeso] Promedio en libras calculado: ${estadisticas.promedioLibras.toFixed(2)} lbs`);
+        console.error(`❌ [RegistrarPeso] Unidad de peso seleccionada: ${unidadPeso}`);
+        Alert.alert(
+          'Error de Conversión',
+          `El peso promedio calculado es muy alto (${estadisticas.promedioKg.toFixed(2)} kg). Verifica que los pesos estén en la unidad correcta.`
+        );
+        return;
+      }
+
+      console.log(`✅ [RegistrarPeso] Guardando peso - Promedio: ${estadisticas.promedioKg.toFixed(2)} kg (${estadisticas.promedioLibras.toFixed(2)} lbs)`);
 
       await registrarPeso({
         loteId: loteId,
@@ -150,12 +174,15 @@ export default function RegistrarPesoEngordeScreen() {
         fecha: new Date(),
         edadEnDias: 0, // Se calcula automáticamente en el servicio
         edadEnSemanas: 0, // Se calcula automáticamente en el servicio
-        cantidadPollosPesados: pesosEnLibras.length,
-        pesosIndividuales: pesosEnLibras, // Guardamos en libras
-        pesoPromedio: estadisticas.promedioLibras, // Promedio en libras
-        pesoTotal: estadisticas.totalLibras, // Total en libras
+        cantidadPollosPesados: pesosEnKg.length,
+        pesosIndividuales: pesosEnKg, // Guardamos en kg (según el tipo PesoRegistro)
+        pesoPromedio: estadisticas.promedioKg, // Promedio en kg
+        pesoTotal: estadisticas.totalKg, // Total en kg
         ...({observaciones: observaciones.trim()})
       });
+
+      // Invalidar cache del inventario para que aparezcan las libras disponibles
+      invalidateInventarioCache('engorde');
 
       Alert.alert(
         'Éxito',
@@ -177,7 +204,9 @@ export default function RegistrarPesoEngordeScreen() {
   // Auto-llenar pesos para testing (solo en desarrollo)
   const autoLlenarPesos = () => {
     const pesosAleatorios = pesosIndividuales.map(() => {
-      if (unidadPeso === WeightUnit.POUNDS) {
+      if (unidadPeso === WeightUnit.GRAMS) {
+        return (Math.random() * 1400 + 1800).toFixed(0); // Pesos entre 1800-3200 gramos (4-7 libras)
+      } else if (unidadPeso === WeightUnit.POUNDS) {
         return (Math.random() * 3 + 4).toFixed(2); // Pesos entre 4-7 libras para engorde
       } else {
         return (Math.random() * 48 + 64).toFixed(1); // Pesos entre 64-112 onzas (4-7 libras)
@@ -251,6 +280,20 @@ export default function RegistrarPesoEngordeScreen() {
             <TouchableOpacity
               style={[
                 styles.unitButton,
+                unidadPeso === WeightUnit.GRAMS && styles.unitButtonActive
+              ]}
+              onPress={() => setUnidadPeso(WeightUnit.GRAMS)}
+            >
+              <Text style={[
+                styles.unitButtonText,
+                unidadPeso === WeightUnit.GRAMS && styles.unitButtonTextActive
+              ]}>
+                {getUnitLabel(WeightUnit.GRAMS)}
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[
+                styles.unitButton,
                 unidadPeso === WeightUnit.POUNDS && styles.unitButtonActive
               ]}
               onPress={() => setUnidadPeso(WeightUnit.POUNDS)}
@@ -278,7 +321,9 @@ export default function RegistrarPesoEngordeScreen() {
             </TouchableOpacity>
           </View>
           <Text style={styles.helperText}>
-            {unidadPeso === WeightUnit.POUNDS 
+            {unidadPeso === WeightUnit.GRAMS 
+              ? 'Recomendado: 1800-3200 gramos por pollo de engorde'
+              : unidadPeso === WeightUnit.POUNDS 
               ? 'Recomendado: 4-7 libras por pollo de engorde'
               : 'Recomendado: 64-112 onzas por pollo de engorde'
             }
@@ -317,10 +362,16 @@ export default function RegistrarPesoEngordeScreen() {
                 <Input
                   value={peso}
                   onChangeText={(value) => handlePesoChange(index, value)}
-                  placeholder={unidadPeso === WeightUnit.POUNDS ? "0.00" : "0.0"}
+                  placeholder={
+                    unidadPeso === WeightUnit.GRAMS ? "0" :
+                    unidadPeso === WeightUnit.POUNDS ? "0.00" : "0.0"
+                  }
                   keyboardType="decimal-pad"
                   style={styles.pesoInput}
-                  maxLength={unidadPeso === WeightUnit.POUNDS ? 5 : 6}
+                  maxLength={
+                    unidadPeso === WeightUnit.GRAMS ? 5 :
+                    unidadPeso === WeightUnit.POUNDS ? 5 : 6
+                  }
                 />
               </View>
             ))}

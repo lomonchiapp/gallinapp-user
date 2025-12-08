@@ -30,6 +30,14 @@ const DEFAULT_CONFIG: Omit<AppConfig, 'id' | 'updatedAt' | 'updatedBy'> = {
   pesoObjetivoEngorde: 4.5, // libras
   tasaMortalidadAceptable: 5.0, // porcentaje
   cantidadHuevosPorCaja: 30, // Cantidad estándar de huevos por caja
+  notificaciones: {
+    alertasHabilitadas: true,
+    mostrarAlertasExito: true,
+    mostrarAlertasError: true,
+    mostrarAlertasConfirmacion: true,
+    sonidoAlertas: true,
+    vibrarEnAlertas: true,
+  },
 };
 
 /**

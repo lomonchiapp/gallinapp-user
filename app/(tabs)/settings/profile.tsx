@@ -4,7 +4,7 @@
 
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Alert, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import Button from '../../../src/components/ui/Button';
 import Card from '../../../src/components/ui/Card';
@@ -13,27 +13,29 @@ import { colors } from '../../../src/constants/colors';
 import { useAuthStore } from '../../../src/stores/authStore';
 
 export default function ProfileScreen() {
-  const { user, logout } = useAuthStore();
+  const { user, logout, updateProfile, isLoading } = useAuthStore();
   
   const [displayName, setDisplayName] = useState(user?.displayName || '');
   const [isEditing, setIsEditing] = useState(false);
-  const [isLoading, setIsLoading] = useState(false);
   
-  // Función para actualizar el perfil (a implementar)
+  // Actualizar displayName cuando cambie el usuario
+  useEffect(() => {
+    setDisplayName(user?.displayName || '');
+  }, [user?.displayName]);
+  
+  // Función para actualizar el perfil
   const handleUpdateProfile = async () => {
-    setIsLoading(true);
+    if (!displayName.trim()) {
+      Alert.alert('Error', 'El nombre no puede estar vacío');
+      return;
+    }
     
     try {
-      // Aquí iría la lógica para actualizar el perfil
-      // Por ahora solo mostramos un mensaje
-      setTimeout(() => {
-        setIsLoading(false);
-        setIsEditing(false);
-        Alert.alert('Éxito', 'Perfil actualizado correctamente');
-      }, 1000);
-    } catch (error) {
-      setIsLoading(false);
-      Alert.alert('Error', 'No se pudo actualizar el perfil');
+      await updateProfile(displayName.trim());
+      setIsEditing(false);
+      Alert.alert('Éxito', 'Perfil actualizado correctamente');
+    } catch (error: any) {
+      Alert.alert('Error', error.message || 'No se pudo actualizar el perfil');
     }
   };
   

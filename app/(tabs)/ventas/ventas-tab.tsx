@@ -19,12 +19,34 @@ import { Card } from '../../../src/components/ui/Card';
 import { colors } from '../../../src/constants/colors';
 import { useVentas } from '../../../src/hooks/useVentas';
 import { EstadoVenta, Venta } from '../../../src/services/ventas.service';
+import { TipoProducto } from '../../../src/types/facturacion';
+
+type TipoVentaFiltro = 'TODAS' | 'HUEVOS' | 'POLLOS' | 'LIBRAS';
 
 export default function VentasTab() {
   const router = useRouter();
   const { ventas, isLoading, getVentas, error } = useVentas();
   const [busqueda, setBusqueda] = useState('');
   const [filtroEstado, setFiltroEstado] = useState<EstadoVenta | 'TODAS'>('TODAS');
+  const [filtroTipo, setFiltroTipo] = useState<TipoVentaFiltro>('TODAS');
+
+  // Función auxiliar para determinar el tipo de venta
+  const obtenerTipoVenta = (venta: Venta): TipoVentaFiltro => {
+    const tieneHuevos = venta.items.some(item => item.producto.tipo === TipoProducto.HUEVOS);
+    const tienePollos = venta.items.some(item => 
+      item.producto.tipo === TipoProducto.UNIDADES_GALLINAS_PONEDORAS ||
+      item.producto.tipo === TipoProducto.UNIDADES_POLLOS_LEVANTE ||
+      item.producto.tipo === TipoProducto.UNIDADES_POLLOS_ENGORDE ||
+      item.producto.tipo === TipoProducto.LOTE_COMPLETO
+    );
+    
+    // Si tiene huevos, es venta de huevos
+    if (tieneHuevos) return 'HUEVOS';
+    // Si tiene pollos, es venta de pollos
+    if (tienePollos) return 'POLLOS';
+    // Por defecto, si no hay clasificación clara, retornar 'TODAS'
+    return 'TODAS';
+  };
 
   // Filtrar ventas
   const ventasFiltradas = useMemo(() => {
@@ -45,8 +67,13 @@ export default function VentasTab() {
       filtered = filtered.filter(venta => venta.estado === filtroEstado);
     }
 
+    // Filtrar por tipo de venta
+    if (filtroTipo !== 'TODAS') {
+      filtered = filtered.filter(venta => obtenerTipoVenta(venta) === filtroTipo);
+    }
+
     return filtered.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
-  }, [ventas, busqueda, filtroEstado]);
+  }, [ventas, busqueda, filtroEstado, filtroTipo]);
 
   // Estadísticas
   const estadisticas = useMemo(() => {
@@ -55,8 +82,26 @@ export default function VentasTab() {
     const montoTotal = ventas
       .filter(v => v.estado === EstadoVenta.CONFIRMADA)
       .reduce((sum, v) => sum + v.total, 0);
+    
+    // Estadísticas por tipo
+    const ventasHuevos = ventas.filter(v => obtenerTipoVenta(v) === 'HUEVOS').length;
+    const ventasPollos = ventas.filter(v => obtenerTipoVenta(v) === 'POLLOS').length;
+    const montoHuevos = ventas
+      .filter(v => v.estado === EstadoVenta.CONFIRMADA && obtenerTipoVenta(v) === 'HUEVOS')
+      .reduce((sum, v) => sum + v.total, 0);
+    const montoPollos = ventas
+      .filter(v => v.estado === EstadoVenta.CONFIRMADA && obtenerTipoVenta(v) === 'POLLOS')
+      .reduce((sum, v) => sum + v.total, 0);
 
-    return { totalVentas, ventasConfirmadas, montoTotal };
+    return { 
+      totalVentas, 
+      ventasConfirmadas, 
+      montoTotal,
+      ventasHuevos,
+      ventasPollos,
+      montoHuevos,
+      montoPollos
+    };
   }, [ventas]);
 
   const handleRefresh = async () => {
@@ -119,9 +164,24 @@ export default function VentasTab() {
         <Text style={styles.clienteNombre}>{venta.cliente.nombre}</Text>
         
         <View style={styles.ventaDetalle}>
-          <Text style={styles.itemsCount}>
-            {venta.items.length} producto{venta.items.length !== 1 ? 's' : ''}
-          </Text>
+          <View style={styles.ventaDetalleLeft}>
+            <Text style={styles.itemsCount}>
+              {venta.items.length} producto{venta.items.length !== 1 ? 's' : ''}
+            </Text>
+            <View style={styles.tipoVentaBadge}>
+              <Ionicons 
+                name={obtenerTipoVenta(venta) === 'HUEVOS' ? 'egg' : 'restaurant'} 
+                size={12} 
+                color={obtenerTipoVenta(venta) === 'HUEVOS' ? colors.ponedoras : colors.primary} 
+              />
+              <Text style={[
+                styles.tipoVentaText,
+                { color: obtenerTipoVenta(venta) === 'HUEVOS' ? colors.ponedoras : colors.primary }
+              ]}>
+                {obtenerTipoVenta(venta) === 'HUEVOS' ? 'Huevos' : 'Pollos'}
+              </Text>
+            </View>
+          </View>
           <Text style={styles.ventaTotal}>RD${venta.total.toFixed(2)}</Text>
         </View>
 
@@ -161,6 +221,30 @@ export default function VentasTab() {
           <Text style={styles.estadisticaLabel}>Monto Total</Text>
         </View>
       </View>
+      
+      {/* Estadísticas por tipo */}
+      <View style={styles.estadisticasTipoContainer}>
+        <View style={styles.estadisticaTipoItem}>
+          <Ionicons name="egg" size={16} color={colors.ponedoras} />
+          <View style={styles.estadisticaTipoContent}>
+            <Text style={styles.estadisticaTipoValor}>{estadisticas.ventasHuevos}</Text>
+            <Text style={styles.estadisticaTipoLabel}>Ventas Huevos</Text>
+            <Text style={[styles.estadisticaTipoMonto, { color: colors.ponedoras }]}>
+              RD${estadisticas.montoHuevos.toFixed(0)}
+            </Text>
+          </View>
+        </View>
+        <View style={styles.estadisticaTipoItem}>
+          <Ionicons name="restaurant" size={16} color={colors.primary} />
+          <View style={styles.estadisticaTipoContent}>
+            <Text style={styles.estadisticaTipoValor}>{estadisticas.ventasPollos}</Text>
+            <Text style={styles.estadisticaTipoLabel}>Ventas Pollos</Text>
+            <Text style={[styles.estadisticaTipoMonto, { color: colors.primary }]}>
+              RD${estadisticas.montoPollos.toFixed(0)}
+            </Text>
+          </View>
+        </View>
+      </View>
     </Card>
   );
 
@@ -185,8 +269,37 @@ export default function VentasTab() {
         )}
       </View>
 
-      {/* Filtros */}
+      {/* Filtros por tipo */}
       <View style={styles.filtrosContainer}>
+        <Text style={styles.filtrosLabel}>Tipo de Venta:</Text>
+        {(['TODAS', 'HUEVOS', 'POLLOS'] as TipoVentaFiltro[]).map((tipo) => (
+          <TouchableOpacity
+            key={tipo}
+            style={[
+              styles.filtroButton,
+              filtroTipo === tipo && styles.filtroButtonActive
+            ]}
+            onPress={() => setFiltroTipo(tipo)}
+          >
+            <Ionicons 
+              name={tipo === 'HUEVOS' ? 'egg' : tipo === 'POLLOS' ? 'restaurant' : 'grid'} 
+              size={14} 
+              color={filtroTipo === tipo ? colors.white : colors.textMedium} 
+              style={{ marginRight: 4 }}
+            />
+            <Text style={[
+              styles.filtroText,
+              filtroTipo === tipo && styles.filtroTextActive
+            ]}>
+              {tipo}
+            </Text>
+          </TouchableOpacity>
+        ))}
+      </View>
+
+      {/* Filtros por estado */}
+      <View style={styles.filtrosContainer}>
+        <Text style={styles.filtrosLabel}>Estado:</Text>
         {(['TODAS', EstadoVenta.CONFIRMADA, EstadoVenta.PENDIENTE, EstadoVenta.CANCELADA] as const).map((estado) => (
           <TouchableOpacity
             key={estado}
@@ -377,11 +490,20 @@ const styles = StyleSheet.create({
   filtrosContainer: {
     flexDirection: 'row',
     paddingHorizontal: 16,
-    marginBottom: 20,
+    marginBottom: 12,
     gap: 10,
     flexWrap: 'wrap',
+    alignItems: 'center',
+  },
+  filtrosLabel: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: colors.textDark,
+    marginRight: 8,
+    width: '100%',
   },
   filtroButton: {
+    flexDirection: 'row',
     paddingVertical: 10,
     paddingHorizontal: 16,
     backgroundColor: colors.white,
@@ -390,6 +512,7 @@ const styles = StyleSheet.create({
     borderColor: colors.veryLightGray,
     minWidth: 80,
     alignItems: 'center',
+    justifyContent: 'center',
   },
   filtroButtonActive: {
     backgroundColor: colors.primary,
@@ -484,6 +607,24 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     marginBottom: 8,
+  },
+  ventaDetalleLeft: {
+    flex: 1,
+  },
+  tipoVentaBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 4,
+    alignSelf: 'flex-start',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
+    backgroundColor: colors.veryLightGray,
+  },
+  tipoVentaText: {
+    fontSize: 11,
+    fontWeight: '600',
+    marginLeft: 4,
   },
   itemsCount: {
     fontSize: 14,
@@ -582,6 +723,41 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.3,
     shadowRadius: 8,
     elevation: 8,
+  },
+  estadisticasTipoContainer: {
+    marginTop: 16,
+    paddingTop: 16,
+    borderTopWidth: 1,
+    borderTopColor: colors.veryLightGray,
+    flexDirection: 'row',
+    gap: 12,
+  },
+  estadisticaTipoItem: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 12,
+    backgroundColor: colors.background,
+    borderRadius: 12,
+    gap: 12,
+  },
+  estadisticaTipoContent: {
+    flex: 1,
+  },
+  estadisticaTipoValor: {
+    fontSize: 18,
+    fontWeight: '800',
+    color: colors.textDark,
+  },
+  estadisticaTipoLabel: {
+    fontSize: 11,
+    color: colors.textMedium,
+    marginTop: 2,
+  },
+  estadisticaTipoMonto: {
+    fontSize: 14,
+    fontWeight: '700',
+    marginTop: 4,
   },
 });
 

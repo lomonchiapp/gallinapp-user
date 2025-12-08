@@ -51,7 +51,11 @@ export const getWeightTrackingInfoFromStore = (
     return [];
   }
 
-  console.log(`⚖️ Procesando tracking para ${lotes.length} lotes de ${tipoAve}`);
+  // Mapear tipo de ave a nombre de colección para el log
+  const nombreColeccion = tipoAve === TipoAve.POLLO_ENGORDE ? 'lotesEngorde' : 
+                          tipoAve === TipoAve.POLLO_LEVANTE ? 'lotesLevantes' : 
+                          tipoAve;
+  console.log(`⚖️ Procesando tracking para ${lotes.length} lotes de ${nombreColeccion}`);
   console.log(`⚖️ Registros de peso disponibles: ${registrosPeso.length}`);
 
   const trackingInfo: WeightTrackingInfo[] = [];

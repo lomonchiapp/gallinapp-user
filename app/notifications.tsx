@@ -21,6 +21,9 @@ import { useNotificationsStore } from '../src/stores/notificationsStore';
 import {
     Notification,
     NotificationStatus,
+    NotificationPriority,
+    NotificationCategory,
+    NotificationType,
 } from '../src/types/notification';
 
 // Componente para una notificación individual

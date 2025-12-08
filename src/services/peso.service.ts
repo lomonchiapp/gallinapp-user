@@ -95,8 +95,17 @@ export const registrarPeso = async (
     }
     
     // Calcular estadísticas de peso
-    const pesoTotal = registroData.pesosIndividuales.reduce((sum, peso) => sum + peso, 0);
-    const pesoPromedio = pesoTotal / registroData.pesosIndividuales.length;
+    // Si ya se proporcionó pesoPromedio y pesoTotal, usarlos (ya están en kg)
+    // De lo contrario, calcularlos desde pesosIndividuales (que también están en kg)
+    const pesoTotal = registroData.pesoTotal !== undefined 
+      ? registroData.pesoTotal 
+      : registroData.pesosIndividuales.reduce((sum, peso) => sum + peso, 0);
+    
+    const pesoPromedio = registroData.pesoPromedio !== undefined
+      ? registroData.pesoPromedio
+      : pesoTotal / registroData.pesosIndividuales.length;
+    
+    console.log(`⚖️ [PesoService] Guardando peso - Total: ${pesoTotal.toFixed(2)} kg, Promedio: ${pesoPromedio.toFixed(2)} kg`);
     
     // Crear documento con edad calculada
     const documentoData = {

@@ -7,6 +7,9 @@ import { TipoAve } from '../types';
 import { useEngorde } from './useEngorde';
 import { useIsraelies } from './useLevantes';
 import { usePonedoras } from './usePonedoras';
+import { useEngordeStore } from '../stores/engordeStore';
+import { useLevantesStore } from '../stores/levantesStore';
+import { usePonedorasStore } from '../stores/ponedorasStore';
 
 export interface LoteConTipo {
     id: string;
@@ -171,5 +174,24 @@ export const useLotesUnificado = () => {
             
             return diasTranscurridos;
         }
+    };
+};
+
+/**
+ * Hook que retorna los stores directamente (para compatibilidad)
+ * @deprecated Usar useLotesUnificado en su lugar
+ */
+export const useLotes = () => {
+    const ponedorasStore = usePonedorasStore();
+    const israeliesStore = useLevantesStore(); // Alias para compatibilidad
+    const engordeStore = useEngordeStore();
+    
+    const unificado = useLotesUnificado();
+    
+    return {
+        ...unificado,
+        ponedorasStore,
+        israeliesStore, // Alias para compatibilidad
+        engordeStore,
     };
 };

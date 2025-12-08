@@ -21,7 +21,7 @@ import {
   Alert,
 } from 'react-native';
 import { colors } from '../../constants/colors';
-import { Producto, TipoProducto, ProductoHuevos } from '../../types/facturacion';
+import { Producto, TipoProducto, ProductoHuevos, ProductoLibrasEngorde } from '../../types/facturacion';
 import { TipoAve } from '../../types/enums';
 import { Button } from '../ui/Button';
 import { Card } from '../ui/Card';
@@ -34,7 +34,7 @@ interface ProductSelectorProps {
   isLoading?: boolean;
 }
 
-type TabType = 'LOTES' | 'AVES' | 'HUEVOS';
+type TabType = 'LOTES' | 'AVES' | 'HUEVOS' | 'LIBRAS';
 
 export const ProductSelector: React.FC<ProductSelectorProps> = ({
   productos,
@@ -60,9 +60,12 @@ export const ProductSelector: React.FC<ProductSelectorProps> = ({
     return {
       lotes: filtered.filter(p => p.tipo === TipoProducto.LOTE_COMPLETO),
       aves: filtered.filter(p => 
-        p.tipo !== TipoProducto.LOTE_COMPLETO && p.tipo !== TipoProducto.HUEVOS
+        p.tipo !== TipoProducto.LOTE_COMPLETO && 
+        p.tipo !== TipoProducto.HUEVOS && 
+        p.tipo !== TipoProducto.LIBRAS_POLLOS_ENGORDE
       ),
       huevos: filtered.filter(p => p.tipo === TipoProducto.HUEVOS),
+      libras: filtered.filter(p => p.tipo === TipoProducto.LIBRAS_POLLOS_ENGORDE),
     };
   }, [productos, busqueda]);
 
@@ -71,6 +74,7 @@ export const ProductSelector: React.FC<ProductSelectorProps> = ({
       case 'LOTES': return productosPorTipo.lotes;
       case 'AVES': return productosPorTipo.aves;
       case 'HUEVOS': return productosPorTipo.huevos;
+      case 'LIBRAS': return productosPorTipo.libras;
       default: return [];
     }
   }, [productosPorTipo, tabActivo]);
@@ -81,7 +85,24 @@ export const ProductSelector: React.FC<ProductSelectorProps> = ({
       return;
     }
 
-    const cantidadNum = parseInt(cantidad, 10);
+    // Validar que productos de libras tengan peso disponible
+    if (productoSeleccionado.tipo === TipoProducto.LIBRAS_POLLOS_ENGORDE) {
+      const productoLibras = productoSeleccionado as ProductoLibrasEngorde;
+      if (!productoLibras.pesoPromedio || productoLibras.pesoPromedio <= 0) {
+        Alert.alert(
+          'Peso No Disponible',
+          `El lote "${productoLibras.nombre}" no tiene registros de peso.\n\nDebe registrar un pesaje antes de poder vender por libras.`,
+          [{ text: 'Entendido' }]
+        );
+        return;
+      }
+    }
+
+    // Para libras, permitir decimales
+    const cantidadNum = productoSeleccionado.tipo === TipoProducto.LIBRAS_POLLOS_ENGORDE
+      ? parseFloat(cantidad)
+      : parseInt(cantidad, 10);
+    
     if (isNaN(cantidadNum) || cantidadNum <= 0) {
       Alert.alert('Error', 'Ingresa una cantidad válida');
       return;
@@ -90,7 +111,7 @@ export const ProductSelector: React.FC<ProductSelectorProps> = ({
     if (cantidadNum > productoSeleccionado.disponible) {
       Alert.alert(
         'Stock Insuficiente',
-        `Solo hay ${productoSeleccionado.disponible} unidades disponibles`
+        `Solo hay ${productoSeleccionado.disponible} ${productoSeleccionado.unidadMedida} disponibles`
       );
       return;
     }
@@ -128,14 +149,30 @@ export const ProductSelector: React.FC<ProductSelectorProps> = ({
     const isSelected = productoSeleccionado?.id === producto.id;
     const tipoColor = getTipoAveColor(producto.tipoAve);
     
+    // Verificar si es producto de libras sin peso
+    const esLibrasSinPeso = producto.tipo === TipoProducto.LIBRAS_POLLOS_ENGORDE && 
+      (!(producto as ProductoLibrasEngorde).pesoPromedio || (producto as ProductoLibrasEngorde).pesoPromedio <= 0);
+    
     return (
       <TouchableOpacity
         key={producto.id}
         style={[
           styles.productoCard,
-          isSelected && { borderColor: colors.primary, borderWidth: 2 }
+          isSelected && { borderColor: colors.primary, borderWidth: 2 },
+          esLibrasSinPeso && { opacity: 0.6, borderColor: colors.warning, borderWidth: 1 }
         ]}
-        onPress={() => setProductoSeleccionado(producto)}
+        onPress={() => {
+          if (esLibrasSinPeso) {
+            Alert.alert(
+              'Peso No Disponible',
+              `El lote "${producto.nombre}" no tiene registros de peso.\n\nDebe registrar un pesaje antes de poder vender por libras.`,
+              [{ text: 'Entendido' }]
+            );
+            return;
+          }
+          setProductoSeleccionado(producto);
+        }}
+        disabled={esLibrasSinPeso}
       >
         <View style={styles.productoHeader}>
           <View style={styles.productoTipo}>
@@ -146,17 +183,34 @@ export const ProductSelector: React.FC<ProductSelectorProps> = ({
             />
             <Text style={[styles.productoTipoText, { color: tipoColor }]}>
               {producto.tipo === TipoProducto.LOTE_COMPLETO ? 'Lote Completo' :
-               producto.tipo === TipoProducto.HUEVOS ? 'Huevos' : 'Unidades'}
+               producto.tipo === TipoProducto.HUEVOS ? 'Huevos' :
+               producto.tipo === TipoProducto.LIBRAS_POLLOS_ENGORDE ? 'Libras' : 'Unidades'}
             </Text>
           </View>
-          <Text style={styles.productoDisponible}>
-            {producto.disponible} {producto.unidadMedida}
-          </Text>
+          {esLibrasSinPeso ? (
+            <View style={styles.warningBadge}>
+              <Ionicons name="warning" size={12} color={colors.warning} />
+              <Text style={styles.warningText}>Sin peso</Text>
+            </View>
+          ) : (
+            <Text style={styles.productoDisponible}>
+              {producto.disponible} {producto.unidadMedida}
+            </Text>
+          )}
         </View>
         
         <Text style={styles.productoNombre}>{producto.nombre}</Text>
         {producto.descripcion && (
           <Text style={styles.productoDescripcion}>{producto.descripcion}</Text>
+        )}
+        
+        {esLibrasSinPeso && (
+          <View style={styles.warningMessage}>
+            <Ionicons name="information-circle" size={14} color={colors.warning} />
+            <Text style={styles.warningMessageText}>
+              Registre un pesaje para habilitar la venta por libras
+            </Text>
+          </View>
         )}
         
         <View style={styles.productoPrecio}>
@@ -235,6 +289,7 @@ export const ProductSelector: React.FC<ProductSelectorProps> = ({
           {renderTabButton('LOTES', 'Lotes', productosPorTipo.lotes.length)}
           {renderTabButton('AVES', 'Aves', productosPorTipo.aves.length)}
           {renderTabButton('HUEVOS', 'Huevos', productosPorTipo.huevos.length)}
+          {renderTabButton('LIBRAS', 'Libras', productosPorTipo.libras.length)}
         </View>
 
         {/* Lista de productos */}
@@ -267,13 +322,45 @@ export const ProductSelector: React.FC<ProductSelectorProps> = ({
               <Text style={styles.selectionTitle}>Producto Seleccionado</Text>
               <Text style={styles.selectionProduct}>{productoSeleccionado.nombre}</Text>
               
+              {/* Mostrar peso promedio para productos de libras */}
+              {productoSeleccionado.tipo === TipoProducto.LIBRAS_POLLOS_ENGORDE && (
+                <View style={styles.infoContainer}>
+                  {(productoSeleccionado as ProductoLibrasEngorde).pesoPromedio && (
+                    <View style={styles.infoRow}>
+                      <Text style={styles.infoLabel}>Peso promedio:</Text>
+                      <Text style={styles.infoValue}>
+                        {(productoSeleccionado as ProductoLibrasEngorde).pesoPromedio.toFixed(2)} lbs/pollo
+                      </Text>
+                    </View>
+                  )}
+                  {(() => {
+                    const productoLibras = productoSeleccionado as ProductoLibrasEngorde;
+                    const cantidadLibras = parseFloat(cantidad) || 0;
+                    const pesoPromedio = productoLibras.pesoPromedio || 0;
+                    const pollosNecesarios = pesoPromedio > 0 ? Math.ceil(cantidadLibras / pesoPromedio) : 0;
+                    
+                    if (cantidadLibras > 0 && pesoPromedio > 0) {
+                      return (
+                        <View style={styles.infoRow}>
+                          <Text style={styles.infoLabel}>Equivale a:</Text>
+                          <Text style={styles.infoValue}>
+                            {pollosNecesarios} pollo{pollosNecesarios !== 1 ? 's' : ''}
+                          </Text>
+                        </View>
+                      );
+                    }
+                    return null;
+                  })()}
+                </View>
+              )}
+              
               <View style={styles.cantidadContainer}>
                 <Text style={styles.cantidadLabel}>Cantidad:</Text>
                 <TextInput
                   style={styles.cantidadInput}
                   value={cantidad}
                   onChangeText={setCantidad}
-                  keyboardType="numeric"
+                  keyboardType={productoSeleccionado.tipo === TipoProducto.LIBRAS_POLLOS_ENGORDE ? "decimal-pad" : "numeric"}
                   placeholder="1"
                 />
                 <Text style={styles.cantidadUnidad}>
@@ -284,7 +371,9 @@ export const ProductSelector: React.FC<ProductSelectorProps> = ({
               <View style={styles.precioContainer}>
                 <Text style={styles.precioLabel}>Total:</Text>
                 <Text style={styles.precioTotal}>
-                  RD${(productoSeleccionado.precioUnitario * (parseInt(cantidad) || 0)).toFixed(2)}
+                  RD${(productoSeleccionado.precioUnitario * (productoSeleccionado.tipo === TipoProducto.LIBRAS_POLLOS_ENGORDE 
+                    ? parseFloat(cantidad) || 0 
+                    : parseInt(cantidad, 10) || 0)).toFixed(2)}
                 </Text>
               </View>
               
@@ -417,6 +506,34 @@ const styles = StyleSheet.create({
     color: colors.textMedium,
     fontWeight: '500',
   },
+  warningBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: colors.warning + '20',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 8,
+    gap: 4,
+  },
+  warningText: {
+    fontSize: 11,
+    color: colors.warning,
+    fontWeight: '600',
+  },
+  warningMessage: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: colors.warning + '10',
+    padding: 8,
+    borderRadius: 6,
+    marginTop: 8,
+    gap: 6,
+  },
+  warningMessageText: {
+    fontSize: 12,
+    color: colors.warning,
+    flex: 1,
+  },
   productoNombre: {
     fontSize: 16,
     fontWeight: '600',
@@ -536,6 +653,27 @@ const styles = StyleSheet.create({
   },
   confirmarButton: {
     backgroundColor: colors.primary,
+  },
+  infoContainer: {
+    backgroundColor: colors.primary + '10',
+    borderRadius: 8,
+    padding: 12,
+    marginBottom: 12,
+  },
+  infoRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 4,
+  },
+  infoLabel: {
+    fontSize: 14,
+    color: colors.textMedium,
+  },
+  infoValue: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: colors.primary,
   },
 });
 

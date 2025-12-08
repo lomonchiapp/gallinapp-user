@@ -187,3 +187,6 @@ export const useLevantes = () => {
         clearError: store.clearError
     };
 };
+
+// Alias para compatibilidad hacia atrás
+export const useIsraelies = useLevantes;

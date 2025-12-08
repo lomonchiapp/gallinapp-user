@@ -7,9 +7,10 @@ import {
     sendPasswordResetEmail,
     signInWithEmailAndPassword,
     signOut,
+    updateProfile as updateFirebaseProfile,
     UserCredential
 } from 'firebase/auth';
-import { doc, getDoc, setDoc } from 'firebase/firestore';
+import { doc, getDoc, setDoc, updateDoc, serverTimestamp } from 'firebase/firestore';
 import { auth, db } from '../components/config/firebase';
 import { UserRole } from '../types/enums';
 
@@ -195,5 +196,42 @@ export const resetPassword = async (email: string): Promise<void> => {
   } catch (error: any) {
     console.error('❌ Error al enviar email de restablecimiento:', error);
     throw new Error(error.message || 'Error al enviar email de restablecimiento');
+  }
+};
+
+/**
+ * Actualiza el perfil del usuario actual
+ */
+export const updateProfile = async (displayName: string): Promise<AppUser> => {
+  try {
+    const firebaseUser = auth.currentUser;
+    if (!firebaseUser) {
+      throw new Error('Usuario no autenticado');
+    }
+
+    console.log('📝 Actualizando perfil del usuario:', firebaseUser.uid);
+    
+    // Actualizar displayName en Firebase Auth
+    await updateFirebaseProfile(firebaseUser, {
+      displayName: displayName
+    });
+    
+    // Actualizar displayName en Firestore
+    await updateDoc(doc(db, 'users', firebaseUser.uid), {
+      displayName: displayName,
+      updatedAt: serverTimestamp()
+    });
+    
+    // Obtener datos actualizados del usuario
+    const appUser = await getCurrentUser();
+    if (!appUser) {
+      throw new Error('Error al obtener datos actualizados del usuario');
+    }
+    
+    console.log('✅ Perfil actualizado exitosamente');
+    return appUser;
+  } catch (error: any) {
+    console.error('❌ Error al actualizar perfil:', error);
+    throw new Error(error.message || 'Error al actualizar perfil');
   }
 };

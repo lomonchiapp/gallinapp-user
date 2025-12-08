@@ -53,11 +53,11 @@ export default function CustomDrawerContent(props: any) {
         />
 
         <DrawerItem
-          label="Pollos Israelíes"
+          label="Pollos de Levante"
           icon={({ color, size }) => (
             <Ionicons name="nutrition" size={size} color={colors.success} />
           )}
-          onPress={() => router.push('/(tabs)/israelies')}
+          onPress={() => router.push('/(tabs)/levantes')}
           labelStyle={styles.menuItemText}
         />
 

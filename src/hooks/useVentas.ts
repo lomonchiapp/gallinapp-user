@@ -10,7 +10,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { ventasService, Venta, CrearVenta, ItemVenta } from '../services/ventas.service';
-import { Producto } from '../types/facturacion';
+import { Producto, TipoProducto, ProductoLibrasEngorde } from '../types/facturacion';
 
 interface UseVentasReturn {
   // Estado
@@ -140,6 +140,16 @@ export const useVentas = (): UseVentasReturn => {
     const subtotal = producto.precioUnitario * cantidad;
     const total = subtotal - descuento;
     
+    // Calcular cantidad de pollos si es venta por libras
+    let cantidadPollos: number | undefined;
+    if (producto.tipo === TipoProducto.LIBRAS_POLLOS_ENGORDE) {
+      const productoLibras = producto as ProductoLibrasEngorde;
+      if (productoLibras.pesoPromedio && productoLibras.pesoPromedio > 0) {
+        // Calcular pollos necesarios: libras vendidas / peso promedio (redondeado hacia arriba)
+        cantidadPollos = Math.ceil(cantidad / productoLibras.pesoPromedio);
+      }
+    }
+    
     return {
       id: `item-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
       productoId: producto.id,
@@ -149,6 +159,7 @@ export const useVentas = (): UseVentasReturn => {
       descuento,
       subtotal,
       total,
+      cantidadPollos,
     };
   }, []);
 

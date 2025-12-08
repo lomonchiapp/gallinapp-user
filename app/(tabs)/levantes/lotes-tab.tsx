@@ -21,6 +21,7 @@ import { useArticulosStore } from '../../../src/stores/articulosStore';
 import { useLevantesStore } from '../../../src/stores/levantesStore';
 import { useMortalityStore } from '../../../src/stores/mortalityStore';
 import { usePesoStore } from '../../../src/stores/pesoStore';
+import { showConfirmationAlert, showErrorAlert, showSuccessAlert } from '../../../src/utils/alert.service';
 
 export default function LotesTab() {
   console.log('🐔 LotesTab Levantes: Componente renderizado');
@@ -30,6 +31,7 @@ export default function LotesTab() {
   const [ordenamiento, setOrdenamiento] = useState('fechaInicio');
   const [ordenDescendente, setOrdenDescendente] = useState(true);
   const [mostrarOpcionesOrden, setMostrarOpcionesOrden] = useState(false);
+  const [mostrarFinalizados, setMostrarFinalizados] = useState(false);
   const [gastoSheetVisible, setGastoSheetVisible] = useState(false);
   const [transferenciaSheetVisible, setTransferenciaSheetVisible] = useState(false);
   const [loteSeleccionado, setLoteSeleccionado] = useState<{
@@ -40,6 +42,8 @@ export default function LotesTab() {
   const [loteExpandido, setLoteExpandido] = useState<string | null>(null);
   const [menuAccionesVisible, setMenuAccionesVisible] = useState(false);
   const [loteParaAcciones, setLoteParaAcciones] = useState<any>(null);
+  const [modalCambioEstadoVisible, setModalCambioEstadoVisible] = useState(false);
+  const [loteParaCambiarEstado, setLoteParaCambiarEstado] = useState<any>(null);
   
   const { lotes, cargarLotes, crearLote, actualizarLote, suscribirseALevantes } = useLevantesStore();
   const { articulos, loadArticulos } = useArticulosStore();
@@ -343,6 +347,12 @@ export default function LotesTab() {
     // Crear una copia del array para no modificar el original
     let lotesFiltrados = [...lotes];
 
+    // Filtrar por estado: por defecto solo mostrar activos
+    if (!mostrarFinalizados) {
+      lotesFiltrados = lotesFiltrados.filter(lote => lote.estado === EstadoLote.ACTIVO);
+      console.log('🔍 Lotes filtrados por estado (solo activos):', lotesFiltrados.length);
+    }
+
     // Filtrar por búsqueda de texto
     if (busqueda.trim()) {
       const terminoBusqueda = busqueda.toLowerCase();
@@ -404,7 +414,7 @@ export default function LotesTab() {
 
     console.log('🔍 Lotes finales ordenados:', lotesFiltrados.length);
     return lotesFiltrados;
-  }, [lotes, busqueda, ordenamiento, ordenDescendente, estadisticasMortalidad]);
+  }, [lotes, busqueda, ordenamiento, ordenDescendente, estadisticasMortalidad, mostrarFinalizados]);
 
   const handleNuevoLote = () => {
     router.push('/levantes/nuevo-lote');
@@ -444,8 +454,51 @@ export default function LotesTab() {
     setMenuAccionesVisible(true);
   };
 
+  const handleLongPressLote = (lote: any) => {
+    setLoteParaCambiarEstado(lote);
+    setModalCambioEstadoVisible(true);
+  };
+
+  const handleCambiarEstado = async (nuevoEstado: EstadoLote) => {
+    if (!loteParaCambiarEstado) return;
+
+    try {
+      await actualizarLote(loteParaCambiarEstado.id, { estado: nuevoEstado });
+      showSuccessAlert('Éxito', `Estado del lote cambiado a ${nuevoEstado}`);
+      setModalCambioEstadoVisible(false);
+      setLoteParaCambiarEstado(null);
+    } catch (error: any) {
+      console.error('Error al cambiar estado del lote:', error);
+      showErrorAlert('Error', error.message || 'No se pudo cambiar el estado del lote');
+    }
+  };
+
+  const handleEliminarLote = async (lote: any) => {
+    if (lote.estado === EstadoLote.ACTIVO) {
+      showErrorAlert('No se puede eliminar', 'No se puede eliminar un lote activo. Debe finalizarlo primero.');
+      return;
+    }
+
+    showConfirmationAlert(
+      'Eliminar Lote',
+      `¿Estás seguro de que deseas eliminar el lote "${lote.nombre}"? Esta acción no se puede deshacer.`,
+      async () => {
+        try {
+          await useLevantesStore.getState().eliminarLote(lote.id);
+          showSuccessAlert('Éxito', 'Lote eliminado correctamente');
+        } catch (error: any) {
+          console.error('Error al eliminar lote:', error);
+          showErrorAlert('Error', error.message || 'No se pudo eliminar el lote');
+        }
+      },
+      undefined,
+      'Eliminar',
+      'Cancelar'
+    );
+  };
+
   const getAccionesParaLote = (lote: any): AccionLote[] => {
-    return [
+    const acciones: AccionLote[] = [
       {
         id: 'registrar-muerte',
         label: 'Registrar Muerte',
@@ -482,6 +535,19 @@ export default function LotesTab() {
         variant: 'primary',
       },
     ];
+
+    // Agregar opción de eliminar solo si el lote está finalizado
+    if (lote.estado !== EstadoLote.ACTIVO) {
+      acciones.push({
+        id: 'eliminar-lote',
+        label: 'Eliminar Lote',
+        icon: 'trash-outline',
+        onPress: () => handleEliminarLote(lote),
+        variant: 'danger',
+      });
+    }
+
+    return acciones;
   };
 
   // Obtener información de pesaje para un lote específico
@@ -592,7 +658,7 @@ export default function LotesTab() {
         </View>
       </View>
 
-      {/* Selector de Ordenamiento */}
+      {/* Selector de Ordenamiento y Filtros */}
       <View style={styles.sortContainer}>
         <TouchableOpacity 
           style={styles.sortButton}
@@ -617,6 +683,26 @@ export default function LotesTab() {
             size={20} 
             color={colors.primary} 
           />
+        </TouchableOpacity>
+      </View>
+
+      {/* Toggle para mostrar/ocultar finalizados */}
+      <View style={styles.filterContainer}>
+        <TouchableOpacity 
+          style={styles.filterToggle}
+          onPress={() => {
+            console.log('🔄 Cambiando mostrar finalizados de', mostrarFinalizados, 'a', !mostrarFinalizados);
+            setMostrarFinalizados(!mostrarFinalizados);
+          }}
+        >
+          <Ionicons 
+            name={mostrarFinalizados ? "eye" : "eye-off"} 
+            size={18} 
+            color={mostrarFinalizados ? colors.primary : colors.textMedium} 
+          />
+          <Text style={[styles.filterToggleText, mostrarFinalizados && styles.filterToggleTextActive]}>
+            {mostrarFinalizados ? 'Mostrando todos' : 'Solo activos'}
+          </Text>
         </TouchableOpacity>
       </View>
 
@@ -729,6 +815,7 @@ export default function LotesTab() {
                 <TouchableOpacity
                   activeOpacity={0.7}
                   onPress={() => toggleLoteExpandido(lote.id)}
+                  onLongPress={() => handleLongPressLote(lote)}
                   style={styles.loteHeaderTouchable}
                 >
                   <View style={styles.loteHeader}>
@@ -779,9 +866,23 @@ export default function LotesTab() {
                       )}
                     </View>
                     <View style={styles.loteHeaderRight}>
-                      <View style={[styles.statusBadge, lote.estado === EstadoLote.ACTIVO ? styles.activeStatus : styles.inactiveStatus]}>
-                        <Text style={[styles.statusText, { color: lote.estado === EstadoLote.ACTIVO ? colors.success : colors.textMedium }]}>
-                          {lote.estado === EstadoLote.ACTIVO ? 'Activo' : 'Finalizado'}
+                      <View style={[
+                        styles.statusBadge, 
+                        lote.estado === EstadoLote.ACTIVO ? styles.activeStatus : 
+                        lote.estado === EstadoLote.VENDIDO ? styles.soldStatus :
+                        styles.inactiveStatus
+                      ]}>
+                        <Text style={[
+                          styles.statusText, 
+                          { 
+                            color: lote.estado === EstadoLote.ACTIVO ? colors.success : 
+                                   lote.estado === EstadoLote.VENDIDO ? colors.warning :
+                                   colors.textMedium 
+                          }
+                        ]}>
+                          {lote.estado === EstadoLote.ACTIVO ? 'Activo' : 
+                           lote.estado === EstadoLote.VENDIDO ? 'Vendido' :
+                           'Finalizado'}
                         </Text>
                       </View>
                       <CostUnitarioBadge
@@ -892,6 +993,77 @@ export default function LotesTab() {
           titulo={`Acciones - ${loteParaAcciones.nombre}`}
         />
       )}
+
+      {/* Modal de cambio de estado */}
+      <Modal
+        visible={modalCambioEstadoVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => {
+          setModalCambioEstadoVisible(false);
+          setLoteParaCambiarEstado(null);
+        }}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContentEstado}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Cambiar Estado del Lote</Text>
+              <TouchableOpacity onPress={() => {
+                setModalCambioEstadoVisible(false);
+                setLoteParaCambiarEstado(null);
+              }}>
+                <Ionicons name="close" size={24} color={colors.textDark} />
+              </TouchableOpacity>
+            </View>
+            
+            {loteParaCambiarEstado && (
+              <>
+                <Text style={styles.modalSubtitle}>
+                  Lote: <Text style={styles.modalLoteNombre}>{loteParaCambiarEstado.nombre}</Text>
+                </Text>
+                <Text style={styles.modalEstadoActual}>
+                  Estado actual: <Text style={styles.modalEstadoTexto}>{loteParaCambiarEstado.estado}</Text>
+                </Text>
+                
+                <View style={styles.estadosContainer}>
+                  {Object.values(EstadoLote).map((estado) => (
+                    <TouchableOpacity
+                      key={estado}
+                      style={[
+                        styles.estadoOption,
+                        loteParaCambiarEstado.estado === estado && styles.estadoOptionSelected
+                      ]}
+                      onPress={() => handleCambiarEstado(estado)}
+                      disabled={loteParaCambiarEstado.estado === estado}
+                    >
+                      <Ionicons 
+                        name={
+                          estado === EstadoLote.ACTIVO ? 'play-circle' :
+                          estado === EstadoLote.FINALIZADO ? 'checkmark-circle' :
+                          estado === EstadoLote.VENDIDO ? 'cash' :
+                          estado === EstadoLote.CANCELADO ? 'close-circle' :
+                          'swap-horizontal'
+                        }
+                        size={24} 
+                        color={loteParaCambiarEstado.estado === estado ? colors.primary : colors.textMedium} 
+                      />
+                      <Text style={[
+                        styles.estadoOptionText,
+                        loteParaCambiarEstado.estado === estado && styles.estadoOptionTextSelected
+                      ]}>
+                        {estado}
+                      </Text>
+                      {loteParaCambiarEstado.estado === estado && (
+                        <Ionicons name="checkmark" size={20} color={colors.primary} />
+                      )}
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              </>
+            )}
+          </View>
+        </View>
+      </Modal>
       </>
       )}
     </ScrollView>
@@ -990,6 +1162,31 @@ const styles = StyleSheet.create({
     borderColor: colors.primary + '30',
   },
   
+  // Filtro de estado
+  filterContainer: {
+    marginBottom: 12,
+  },
+  filterToggle: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    backgroundColor: colors.white,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: colors.veryLightGray,
+  },
+  filterToggleText: {
+    fontSize: 14,
+    color: colors.textMedium,
+    marginLeft: 6,
+    fontWeight: '500',
+  },
+  filterToggleTextActive: {
+    color: colors.primary,
+  },
+  
   // Modal de Ordenamiento
   modalOverlay: {
     flex: 1,
@@ -1037,6 +1234,63 @@ const styles = StyleSheet.create({
   ordenOptionTextSelected: {
     color: colors.primary,
     fontWeight: '500',
+  },
+  modalContentEstado: {
+    backgroundColor: colors.white,
+    borderRadius: 20,
+    paddingTop: 20,
+    paddingBottom: 30,
+    paddingHorizontal: 20,
+    marginHorizontal: 20,
+    maxHeight: '80%',
+  },
+  modalSubtitle: {
+    fontSize: 16,
+    color: colors.textMedium,
+    marginBottom: 8,
+  },
+  modalLoteNombre: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: colors.textDark,
+  },
+  modalEstadoActual: {
+    fontSize: 14,
+    color: colors.textMedium,
+    marginBottom: 20,
+  },
+  modalEstadoTexto: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: colors.primary,
+  },
+  estadosContainer: {
+    gap: 12,
+  },
+  estadoOption: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: colors.veryLightGray,
+    backgroundColor: colors.white,
+  },
+  estadoOptionSelected: {
+    backgroundColor: colors.primary + '10',
+    borderColor: colors.primary + '50',
+  },
+  estadoOptionText: {
+    flex: 1,
+    fontSize: 16,
+    color: colors.textDark,
+    marginLeft: 12,
+    fontWeight: '500',
+  },
+  estadoOptionTextSelected: {
+    color: colors.primary,
+    fontWeight: '600',
   },
   
   // Información de resultados
@@ -1163,6 +1417,9 @@ const styles = StyleSheet.create({
   },
   inactiveStatus: {
     backgroundColor: colors.lightGray + '20', // Transparencia
+  },
+  soldStatus: {
+    backgroundColor: colors.warning + '20', // Transparencia
   },
   statusText: {
     fontSize: 12,

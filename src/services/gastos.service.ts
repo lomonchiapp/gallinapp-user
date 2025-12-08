@@ -5,11 +5,14 @@
 import {
     addDoc,
     collection,
+    deleteDoc,
+    doc,
     getDocs,
     onSnapshot,
     orderBy,
     query,
     serverTimestamp,
+    updateDoc,
     where
 } from 'firebase/firestore';
 import { db } from '../components/config/firebase';
@@ -263,6 +266,63 @@ export const calcularCostoProduccionUnitario = async (loteId: string, tipoLote: 
   } catch (error) {
     console.error('Error al calcular costo de producción unitario:', error);
     return 0;
+  }
+};
+
+/**
+ * Actualizar un gasto existente
+ */
+export const actualizarGasto = async (
+  gastoId: string,
+  datos: {
+    articuloId?: string;
+    articuloNombre?: string;
+    cantidad?: number;
+    precioUnitario?: number;
+    total?: number;
+    fecha?: Date;
+    categoria?: string;
+    descripcion?: string;
+  }
+): Promise<void> => {
+  try {
+    const userId = getCurrentUserId();
+    if (!userId) throw new Error('Usuario no autenticado');
+
+    const gastoRef = doc(db, GASTOS_COLLECTION, gastoId);
+    const updateData: any = {};
+
+    if (datos.articuloId !== undefined) updateData.articuloId = datos.articuloId;
+    if (datos.articuloNombre !== undefined) updateData.articuloNombre = datos.articuloNombre;
+    if (datos.cantidad !== undefined) updateData.cantidad = datos.cantidad;
+    if (datos.precioUnitario !== undefined) updateData.precioUnitario = datos.precioUnitario;
+    if (datos.total !== undefined) updateData.total = datos.total;
+    if (datos.fecha !== undefined) updateData.fecha = datos.fecha;
+    if (datos.categoria !== undefined) updateData.categoria = datos.categoria;
+    if (datos.descripcion !== undefined) {
+      updateData.descripcion = datos.descripcion.trim() || null;
+    }
+
+    await updateDoc(gastoRef, updateData);
+  } catch (error) {
+    console.error('Error al actualizar gasto:', error);
+    throw error;
+  }
+};
+
+/**
+ * Eliminar un gasto
+ */
+export const eliminarGasto = async (gastoId: string): Promise<void> => {
+  try {
+    const userId = getCurrentUserId();
+    if (!userId) throw new Error('Usuario no autenticado');
+
+    const gastoRef = doc(db, GASTOS_COLLECTION, gastoId);
+    await deleteDoc(gastoRef);
+  } catch (error) {
+    console.error('Error al eliminar gasto:', error);
+    throw error;
   }
 };
 

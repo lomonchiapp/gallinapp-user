@@ -17,6 +17,14 @@ import { useGalpones } from '../../../src/hooks/useGalpones';
 import { useAuthStore } from '../../../src/stores/authStore';
 import { EstadoLote, RazaPollo, TipoAve } from '../../../src/types/enums';
 
+// Razas actuales para engorde (igual que en editar-lote.tsx)
+const RAZAS_ENGORDE = [
+  RazaPollo.ROSS_308,
+  RazaPollo.COBB_500,
+  RazaPollo.HUBBARD,
+  RazaPollo.OTRA
+];
+
 export default function NuevoLoteEngordeScreen() {
   const [nombre, setNombre] = useState('');
   const [numeroAves, setNumeroAves] = useState('');
@@ -226,7 +234,7 @@ export default function NuevoLoteEngordeScreen() {
         <View style={styles.formGroup}>
           <Text style={styles.label}>Raza <Text style={styles.required}>*</Text></Text>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.razaSelector}>
-            {Object.values(RazaPollo).map((razaOption) => (
+            {RAZAS_ENGORDE.map((razaOption) => (
               <Button
                 key={razaOption}
                 title={razaOption.replace('_', ' ')}

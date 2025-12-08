@@ -81,9 +81,16 @@ export const ResumenVenta: React.FC<ResumenVentaProps> = ({
       </View>
       
       <View style={styles.itemDetalle}>
-        <Text style={styles.itemCantidad}>
-          {item.cantidad} {item.producto.unidadMedida} × RD${item.precioUnitario.toFixed(2)}
-        </Text>
+        <View style={styles.itemCantidadContainer}>
+          <Text style={styles.itemCantidad}>
+            {item.cantidad} {item.producto.unidadMedida} × RD${item.precioUnitario.toFixed(2)}
+          </Text>
+          {item.cantidadPollos && item.cantidadPollos > 0 && (
+            <Text style={styles.itemPollosInfo}>
+              ({item.cantidadPollos} pollo{item.cantidadPollos > 1 ? 's' : ''})
+            </Text>
+          )}
+        </View>
         <Text style={styles.itemTotal}>RD${item.total.toFixed(2)}</Text>
       </View>
       
@@ -291,9 +298,18 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
   },
+  itemCantidadContainer: {
+    flex: 1,
+  },
   itemCantidad: {
     fontSize: 14,
     color: colors.textMedium,
+  },
+  itemPollosInfo: {
+    fontSize: 12,
+    color: colors.primary,
+    fontWeight: '600',
+    marginTop: 2,
   },
   itemTotal: {
     fontSize: 16,

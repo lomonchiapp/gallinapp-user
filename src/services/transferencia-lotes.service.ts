@@ -280,7 +280,7 @@ export const transferirLevantePonedoras = async (
 
       // Registrar evento de transferencia
       const eventoRef = doc(collection(db, 'eventos_transferencia'));
-      const evento = {
+      const evento: any = {
         tipo: 'TRANSFERENCIA_LEVANTE_PONEDORAS',
         loteOrigenId: datos.loteLevanteId,
         loteDestinoId: ponedorasRef.id,
@@ -288,8 +288,12 @@ export const transferirLevantePonedoras = async (
         costosHeredados: costosLevante,
         fecha: serverTimestamp(),
         realizadoPor: userId,
-        observaciones: datos.observaciones,
       };
+
+      // Solo incluir observaciones si tiene un valor definido
+      if (datos.observaciones && datos.observaciones.trim()) {
+        evento.observaciones = datos.observaciones.trim();
+      }
 
       transaction.set(eventoRef, evento);
 

@@ -304,8 +304,11 @@ export const useNotificationsStore = create<NotificationsState>((set, get) => ({
   // Crear configuración por defecto
   createDefaultSettings: async (): Promise<NotificationSettings> => {
     try {
-      // Obtener el userId del auth store o servicio
-      const userId = 'current-user'; // TODO: Obtener del auth store
+      const { getCurrentUserId } = await import('../services/auth.service');
+      const userId = getCurrentUserId();
+      if (!userId) {
+        throw new Error('Usuario no autenticado');
+      }
       const settings = await createDefaultNotificationSettings(userId);
       set({ settings });
       return settings;

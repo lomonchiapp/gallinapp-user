@@ -16,7 +16,8 @@ import {
   loginUser,
   logoutUser,
   registerUser,
-  resetPassword
+  resetPassword,
+  updateProfile
 } from '../services/auth.service';
 import { UserRole } from '../types/enums';
 
@@ -32,6 +33,7 @@ interface AuthState {
   register: (email: string, password: string, displayName: string, role?: UserRole) => Promise<void>;
   logout: () => Promise<void>;
   resetPassword: (email: string) => Promise<void>;
+  updateProfile: (displayName: string) => Promise<void>;
   clearError: () => void;
   initializeAuthState: () => () => void; // Inicializar listener de Firebase Auth
 }
@@ -117,6 +119,24 @@ export const useAuthStore = create<AuthState>()(
             isLoading: false, 
             error: error.message || 'Error al restablecer contraseña' 
           });
+        }
+      },
+
+      updateProfile: async (displayName: string) => {
+        set({ isLoading: true, error: null });
+        try {
+          const updatedUser = await updateProfile(displayName);
+          set({ 
+            user: updatedUser,
+            isLoading: false,
+            error: null
+          });
+        } catch (error: any) {
+          set({ 
+            isLoading: false, 
+            error: error.message || 'Error al actualizar perfil' 
+          });
+          throw error;
         }
       },
   

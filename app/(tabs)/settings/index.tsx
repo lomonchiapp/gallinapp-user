@@ -87,7 +87,19 @@ export default function SettingsScreen() {
         <Ionicons name="notifications-outline" size={24} color={colors.primary} style={styles.menuIcon} />
         <View style={styles.menuContent}>
           <Text style={styles.menuTitle}>Notificaciones</Text>
-          <Text style={styles.menuDescription}>Ver y configurar alertas</Text>
+          <Text style={styles.menuDescription}>Ver y gestionar alertas</Text>
+        </View>
+        <Ionicons name="chevron-forward" size={20} color={colors.lightGray} />
+      </TouchableOpacity>
+      
+      <TouchableOpacity 
+        style={styles.menuItem}
+        onPress={() => navigateTo('/(tabs)/settings/notification-settings')}
+      >
+        <Ionicons name="settings-outline" size={24} color={colors.secondary} style={styles.menuIcon} />
+        <View style={styles.menuContent}>
+          <Text style={styles.menuTitle}>Configuración de Notificaciones</Text>
+          <Text style={styles.menuDescription}>Personalizar preferencias de alertas</Text>
         </View>
         <Ionicons name="chevron-forward" size={20} color={colors.lightGray} />
       </TouchableOpacity>

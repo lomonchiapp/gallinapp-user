@@ -9,11 +9,12 @@
  */
 
 import { EstadoLote, TipoAve } from '../types/enums';
-import { Producto, ProductoLoteCompleto, ProductoUnidades, ProductoHuevos, TipoProducto, UnidadVentaHuevos } from '../types/facturacion';
+import { Producto, ProductoLoteCompleto, ProductoUnidades, ProductoHuevos, ProductoLibrasEngorde, TipoProducto, UnidadVentaHuevos } from '../types/facturacion';
 import { configService } from './config.service';
 import { obtenerLotesEngorde } from './engorde.service';
 import { obtenerLotesLevantes } from './levantes.service';
-import { obtenerLotesPonedoras, obtenerRegistrosProduccionPorLote } from './ponedoras.service';
+import { obtenerLotesPonedoras, obtenerRegistrosHuevos } from './ponedoras.service';
+import { obtenerUltimoPesoLote } from './peso.service';
 
 interface CacheEntry<T> {
   data: T;
@@ -278,12 +279,23 @@ class InventarioService {
       const lotesPonedoras = await obtenerLotesPonedoras({ status: EstadoLote.ACTIVO });
       const productos: ProductoHuevos[] = [];
 
+      console.log(`🥚 [InventarioService] Procesando ${lotesPonedoras.length} lotes de ponedoras activos`);
+      
       for (const lote of lotesPonedoras) {
         try {
-          const registros = await obtenerRegistrosProduccionPorLote(lote.id);
+          // Usar obtenerRegistrosHuevos que retorna HuevoRegistro[]
+          const registros = await obtenerRegistrosHuevos(lote.id);
+          
+          console.log(`🥚 [InventarioService] Lote ${lote.id} (${lote.nombre}): ${registros.length} registros encontrados`);
+          
+          if (!registros || registros.length === 0) {
+            console.log(`⚠️ [InventarioService] Lote ${lote.id} (${lote.nombre}) no tiene registros de huevos`);
+            continue;
+          }
           
           // Agrupar registros por fecha
-          const registrosPorFecha = this.agruparRegistrosPorFecha(registros);
+          const registrosPorFecha = this.agruparRegistrosHuevosPorFecha(registros);
+          console.log(`🥚 [InventarioService] Lote ${lote.id}: ${Object.keys(registrosPorFecha).length} fechas agrupadas`);
           
           for (const [fechaKey, grupo] of Object.entries(registrosPorFecha)) {
             const totalDisponible = grupo.cantidadTotal;
@@ -345,21 +357,39 @@ class InventarioService {
     }
   }
 
-  private agruparRegistrosPorFecha(registros: any[]): Record<string, { cantidadTotal: number; registros: any[] }> {
+  private agruparRegistrosHuevosPorFecha(registros: any[]): Record<string, { cantidadTotal: number; registros: any[] }> {
     return registros.reduce((acc, registro) => {
-      const fechaKey = registro.fecha.toISOString().split('T')[0];
+      // Manejar diferentes formatos de fecha
+      let fecha: Date;
+      if (registro.fecha instanceof Date) {
+        fecha = registro.fecha;
+      } else if (registro.fecha?.toDate) {
+        fecha = registro.fecha.toDate();
+      } else if (typeof registro.fecha === 'string') {
+        fecha = new Date(registro.fecha);
+      } else {
+        console.warn('⚠️ [InventarioService] Formato de fecha no reconocido:', registro.fecha);
+        return acc;
+      }
+      
+      const fechaKey = fecha.toISOString().split('T')[0];
       if (!acc[fechaKey]) {
         acc[fechaKey] = { cantidadTotal: 0, registros: [] };
       }
       
-      const cantidadRegistro = 
-        (registro.cantidadHuevosPequenos || 0) +
-        (registro.cantidadHuevosMedianos || 0) +
-        (registro.cantidadHuevosGrandes || 0) +
-        (registro.cantidadHuevosExtraGrandes || 0);
+      // Calcular cantidad disponible: cantidad total - cantidad vendida
+      const cantidadTotal = registro.cantidad || 0;
+      const cantidadVendida = registro.cantidadVendida || 0;
+      const cantidadDisponible = Math.max(0, cantidadTotal - cantidadVendida);
       
-      acc[fechaKey].cantidadTotal += cantidadRegistro;
-      acc[fechaKey].registros.push(registro);
+      // Solo agregar si hay disponibilidad
+      if (cantidadDisponible > 0) {
+        acc[fechaKey].cantidadTotal += cantidadDisponible;
+        acc[fechaKey].registros.push({
+          ...registro,
+          cantidadDisponible, // Agregar campo calculado
+        });
+      }
       
       return acc;
     }, {} as Record<string, { cantidadTotal: number; registros: any[] }>);
@@ -374,8 +404,35 @@ class InventarioService {
     const productos: Producto[] = [];
 
     try {
-      // Calcular precios según tipo de ave
-      const precios = this.calcularPrecios(lote, tipoAve, config);
+      // Para engorde, obtener el peso del último pesaje primero
+      let pesoPromedioLibras: number | undefined;
+      if (tipoAve === TipoAve.POLLO_ENGORDE) {
+        const ultimoPeso = await obtenerUltimoPesoLote(lote.id, TipoAve.POLLO_ENGORDE);
+        if (ultimoPeso && ultimoPeso.pesoPromedio) {
+          // IMPORTANTE: El peso promedio viene en kg desde la BD (según PesoRegistro)
+          // Convertir a libras usando el factor correcto: 1 kg = 2.20462 libras
+          // Si el valor ya está en libras (error de guardado), esto lo duplicaría
+          // Verificar si el valor parece estar en libras (muy alto para kg)
+          const pesoPromedioKg = ultimoPeso.pesoPromedio;
+          
+          // Si el peso promedio es mayor a 5 kg (11 libras), probablemente está en libras
+          // Esto es una validación de seguridad
+          if (pesoPromedioKg > 5) {
+            console.warn(`⚠️ [InventarioService] Lote ${lote.id}: peso promedio sospechosamente alto (${pesoPromedioKg.toFixed(2)}). Asumiendo que está en libras y no convirtiendo.`);
+            pesoPromedioLibras = pesoPromedioKg; // Ya está en libras, no convertir
+          } else {
+            // Convertir de kg a libras
+            pesoPromedioLibras = pesoPromedioKg * 2.20462;
+          }
+          
+          console.log(`⚖️ [InventarioService] Lote ${lote.id}: peso promedio kg=${pesoPromedioKg.toFixed(2)}, libras=${pesoPromedioLibras.toFixed(2)}`);
+        } else {
+          console.warn(`⚠️ [InventarioService] Lote ${lote.id} no tiene registros de peso`);
+        }
+      }
+
+      // Calcular precios según tipo de ave (pasar peso si está disponible)
+      const precios = this.calcularPrecios(lote, tipoAve, config, pesoPromedioLibras);
 
       // Producto: Lote completo
       const productoLoteCompleto: ProductoLoteCompleto = {
@@ -392,7 +449,7 @@ class InventarioService {
         cantidadTotal: lote.cantidadActual,
         raza: lote.raza || 'No especificada',
         fechaInicio: lote.fechaInicio || lote.createdAt,
-        pesoPromedio: lote.pesoPromedio,
+        pesoPromedio: pesoPromedioLibras,
       };
 
       productos.push(productoLoteCompleto);
@@ -413,10 +470,38 @@ class InventarioService {
         cantidadTotal: lote.cantidadActual,
         raza: lote.raza || 'No especificada',
         fechaInicio: lote.fechaInicio || lote.createdAt,
-        pesoPromedio: lote.pesoPromedio,
+        pesoPromedio: pesoPromedioLibras,
       };
 
       productos.push(productoUnidades);
+
+      // Producto: Libras de engorde (solo para lotes de engorde con peso disponible)
+      if (tipoAve === TipoAve.POLLO_ENGORDE && precios.libra && pesoPromedioLibras) {
+        const pesoTotalDisponible = lote.cantidadActual * pesoPromedioLibras;
+        
+        const productoLibras: ProductoLibrasEngorde = {
+          id: `libras-${lote.id}`,
+          nombre: `${lote.nombre} (Libras)`,
+          descripcion: `Venta por libras de pollo de engorde - ${lote.raza || 'No especificada'} (${this.calcularEdadEnDias(lote.fechaNacimiento)} días) - Peso promedio: ${pesoPromedioLibras.toFixed(2)} lbs`,
+          tipo: TipoProducto.LIBRAS_POLLOS_ENGORDE,
+          tipoAve: TipoAve.POLLO_ENGORDE,
+          precioUnitario: precios.libra,
+          unidadMedida: 'libra',
+          disponible: Math.floor(pesoTotalDisponible), // Libras disponibles (redondeado hacia abajo)
+          loteId: lote.id,
+          edadActual: this.calcularEdadEnDias(lote.fechaNacimiento),
+          cantidadTotal: lote.cantidadActual,
+          raza: lote.raza || 'No especificada',
+          fechaInicio: lote.fechaInicio || lote.createdAt,
+          pesoPromedio: pesoPromedioLibras,
+          pesoTotalDisponible: pesoTotalDisponible,
+        };
+
+        productos.push(productoLibras);
+      } else if (tipoAve === TipoAve.POLLO_ENGORDE && !pesoPromedioLibras) {
+        // No generar producto de libras si no hay peso disponible
+        console.warn(`⚠️ [InventarioService] Lote ${lote.nombre} (${lote.id}) no tiene registros de peso. No se puede vender por libras.`);
+      }
 
       return productos;
     } catch (error) {
@@ -425,8 +510,9 @@ class InventarioService {
     }
   }
 
-  private calcularPrecios(lote: any, tipoAve: TipoAve, config: any): { loteCompleto: number; unidad: number } {
+  private calcularPrecios(lote: any, tipoAve: TipoAve, config: any, pesoPromedioLibras?: number): { loteCompleto: number; unidad: number; libra?: number } {
     let precioUnidad = 0;
+    let precioLibra: number | undefined;
 
     switch (tipoAve) {
       case TipoAve.PONEDORA:
@@ -436,8 +522,14 @@ class InventarioService {
         precioUnidad = config.precioUnidadIsraeli * 0.8; // 20% menos que ponedoras
         break;
       case TipoAve.POLLO_ENGORDE:
-        const pesoPromedio = lote.pesoPromedio || config.pesoObjetivoEngorde;
-        precioUnidad = pesoPromedio * config.precioLibraEngorde;
+        precioLibra = config.precioLibraEngorde || 80; // Precio por libra (default RD$80)
+        // Calcular precio por unidad basándose en el peso del último pesaje
+        if (pesoPromedioLibras) {
+          precioUnidad = pesoPromedioLibras * precioLibra;
+        } else {
+          // Si no hay peso, no se puede calcular precio por unidad
+          precioUnidad = 0;
+        }
         break;
     }
 
@@ -445,10 +537,16 @@ class InventarioService {
     const descuentoVolumen = lote.cantidadActual > 100 ? 0.1 : 0.05;
     const precioLoteCompleto = precioUnidad * lote.cantidadActual * (1 - descuentoVolumen);
 
-    return {
+    const resultado: { loteCompleto: number; unidad: number; libra?: number } = {
       unidad: precioUnidad,
       loteCompleto: precioLoteCompleto,
     };
+
+    if (precioLibra !== undefined) {
+      resultado.libra = precioLibra;
+    }
+
+    return resultado;
   }
 
   private getTipoProductoUnidades(tipoAve: TipoAve): TipoProducto {

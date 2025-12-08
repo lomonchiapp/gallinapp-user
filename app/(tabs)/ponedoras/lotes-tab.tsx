@@ -6,20 +6,20 @@ import { EstadoLote, TipoAve } from '@/src/types/enums';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import React, { useEffect, useMemo, useState } from 'react';
-import { Modal, RefreshControl, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { Alert, Modal, RefreshControl, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import AccionesLoteMenu, { AccionLote } from '../../../src/components/ui/AccionesLoteMenu';
 import Button from '../../../src/components/ui/Button';
 import Card from '../../../src/components/ui/Card';
-import CostUnitarioBadge from '../../../src/components/ui/CostUnitarioBadge';
+import CostPorHuevoBadge from '../../../src/components/ui/CostPorHuevoBadge';
 import GastoSheet from '../../../src/components/ui/GastoSheet';
-import AccionesLoteMenu, { AccionLote } from '../../../src/components/ui/AccionesLoteMenu';
 import { colors } from '../../../src/constants/colors';
 import { useGalpones } from '../../../src/hooks/useGalpones';
-import { useGastosSubscription } from '../../../src/hooks/useGastosSubscription';
 import { EggTrackingInfo, getEggTrackingInfoFromStore } from '../../../src/services/tracking-optimized.service';
 import { useArticulosStore } from '../../../src/stores/articulosStore';
 import { useHuevosStore } from '../../../src/stores/huevosStore';
 import { useMortalityStore } from '../../../src/stores/mortalityStore';
 import { usePonedorasStore } from '../../../src/stores/ponedorasStore';
+import { showConfirmationAlert, showErrorAlert, showSuccessAlert } from '../../../src/utils/alert.service';
 import { formatDate } from '../../../src/utils/dateUtils';
 
 const LOCATION_COLORS = {
@@ -39,6 +39,7 @@ export default function LotesTab() {
   const [ordenamiento, setOrdenamiento] = useState('fechaInicio');
   const [ordenDescendente, setOrdenDescendente] = useState(true);
   const [mostrarOpcionesOrden, setMostrarOpcionesOrden] = useState(false);
+  const [mostrarFinalizados, setMostrarFinalizados] = useState(false);
   const [gastoSheetVisible, setGastoSheetVisible] = useState(false);
   const [loteSeleccionado, setLoteSeleccionado] = useState<{
     id: string;
@@ -47,37 +48,41 @@ export default function LotesTab() {
   const [loteExpandido, setLoteExpandido] = useState<string | null>(null);
   const [menuAccionesVisible, setMenuAccionesVisible] = useState(false);
   const [loteParaAcciones, setLoteParaAcciones] = useState<any>(null);
+  const [modalCambioEstadoVisible, setModalCambioEstadoVisible] = useState(false);
+  const [loteParaCambiarEstado, setLoteParaCambiarEstado] = useState<any>(null);
   
   // Estado para tracking de recolección de huevos
   const [eggTracking, setEggTracking] = useState<EggTrackingInfo[]>([]);
 
-  // Estado para costos unitarios
-  const [costosUnitarios, setCostosUnitarios] = useState<{[loteId: string]: {costoUnitario: number, isLoading: boolean}}>({});
+  // Estado para costos por huevo (CPH) y costos unitarios (CPU)
+  const [costosPorHuevo, setCostosPorHuevo] = useState<{[loteId: string]: {costoTotal: number, costoPorHuevo: number, costoUnitario: number, isLoading: boolean}}>({});
+  // Estado para almacenar gastos por lote (para historial CPH)
+  const [gastosPorLote, setGastosPorLote] = useState<{[loteId: string]: {fecha: Date, total: number}[]}>({});
   
   const { lotes, isLoading, estadisticasLotes, cargarLotes, cargarEstadisticasLotes, suscribirseAPonedoras } = usePonedorasStore();
   const { articulos, loadArticulos } = useArticulosStore();
   const { registrosHuevos, loadAllRegistros } = useHuevosStore();
   const { suscribirseAMortalidadPorTipo, getRegistrosPorTipo } = useMortalityStore();
   const registrosMortalidad = getRegistrosPorTipo(TipoAve.PONEDORA);
-  const { gastos, estadisticasGastos } = useGastosSubscription(TipoAve.PONEDORA);
+  // const { gastos, estadisticasGastos } = useGastosSubscription(TipoAve.PONEDORA);
   const { galpones, cargarGalpones } = useGalpones();
 
   // Estado para pull-to-refresh
   const [refreshing, setRefreshing] = useState(false);
   
-  // Calcular costos unitarios cuando cambien los lotes
+  // Calcular costos por huevo (CPH) y costos unitarios (CPU) cuando cambien los lotes
   useEffect(() => {
     if (lotes && lotes.length > 0) {
       const calcularCostos = async () => {
-        const costos: {[loteId: string]: {costoUnitario: number, isLoading: boolean}} = {};
+        const costos: {[loteId: string]: {costoTotal: number, costoPorHuevo: number, costoUnitario: number, isLoading: boolean}} = {};
 
         // NO inicializar como cargando - mantener valores previos o mostrar 0
         // Si ya existe un costo, mantenerlo mientras recalculamos
         lotes.forEach(lote => {
-          const costoExistente = costosUnitarios[lote.id];
-          costos[lote.id] = costoExistente || { costoUnitario: 0, isLoading: false };
+          const costoExistente = costosPorHuevo[lote.id];
+          costos[lote.id] = costoExistente || { costoTotal: 0, costoPorHuevo: 0, costoUnitario: 0, isLoading: false };
         });
-        setCostosUnitarios(costos);
+        setCostosPorHuevo(costos);
 
         // Calcular costo para cada lote en segundo plano
         for (const lote of lotes) {
@@ -105,8 +110,14 @@ export default function LotesTab() {
             const costoInicial = lote.costo || 0;
             const costoTotal = costoInicial + gastosAdicionales;
             
-            // CORRECCIÓN CPU: Usar (Cantidad Inicial - Muertes) como divisor
-            // Esto asegura que las aves vivas absorban el costo de las muertas.
+            // Obtener cantidad de huevos producidos del lote
+            const huevosProducidos = estadisticasLotes[lote.id]?.huevos || 0;
+            
+            // Calcular CPH (Costo de Producción por Huevo): costo total / huevos producidos
+            const costoPorHuevo = huevosProducidos > 0 ? costoTotal / huevosProducidos : 0;
+            
+            // Calcular CPU (Costo Unitario por Ave): costo total / cantidad de aves vivas
+            // Usar (Cantidad Inicial - Muertes) como divisor
             const cantidadParaCalculo = Math.max(1, lote.cantidadInicial - muertes);
             const costoUnitario = costoTotal / cantidadParaCalculo;
             
@@ -117,22 +128,36 @@ export default function LotesTab() {
               cantidadInicial: lote.cantidadInicial,
               muertes,
               cantidadParaCalculo,
-              costoUnitario
+              huevosProducidos,
+              costoPorHuevo: costoPorHuevo.toFixed(4),
+              costoUnitario: costoUnitario.toFixed(4)
             });
             
+            // Almacenar gastos del lote para el historial CPH
+            const gastosParaHistorial = gastosLote.map(g => ({
+              fecha: g.fecha instanceof Date ? g.fecha : new Date(g.fecha),
+              total: g.total
+            }));
+            setGastosPorLote(prev => ({
+              ...prev,
+              [lote.id]: gastosParaHistorial
+            }));
+            
             // Actualizar solo este lote específico
-            setCostosUnitarios(prev => ({
+            setCostosPorHuevo(prev => ({
               ...prev,
               [lote.id]: {
+                costoTotal,
+                costoPorHuevo,
                 costoUnitario,
                 isLoading: false
               }
             }));
           } catch (error) {
             console.error(`Error calculando costo para lote ${lote.id}:`, error);
-            setCostosUnitarios(prev => ({
+            setCostosPorHuevo(prev => ({
               ...prev,
-              [lote.id]: { costoUnitario: 0, isLoading: false }
+              [lote.id]: { costoTotal: 0, costoPorHuevo: 0, costoUnitario: 0, isLoading: false }
             }));
           }
         }
@@ -140,7 +165,8 @@ export default function LotesTab() {
 
       calcularCostos();
     }
-  }, [lotes, registrosMortalidad]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lotes, registrosMortalidad, estadisticasLotes]);
   
   // Debug: Log del estado inicial
   console.log('🔍 Estado inicial:', { busqueda, ordenamiento, ordenDescendente, lotesCount: lotes.length });
@@ -165,6 +191,7 @@ export default function LotesTab() {
     if (lotes.length > 0) {
       cargarEstadisticasLotes();
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [lotes]);
 
   // Cargar información de tracking de recolección de huevos usando datos del store
@@ -197,6 +224,12 @@ export default function LotesTab() {
     
     // Crear una copia del array para no modificar el original
     let lotesFiltrados = [...lotes];
+
+    // Filtrar por estado: por defecto solo mostrar activos
+    if (!mostrarFinalizados) {
+      lotesFiltrados = lotesFiltrados.filter(lote => lote.estado === EstadoLote.ACTIVO);
+      console.log('🔍 Lotes filtrados por estado (solo activos):', lotesFiltrados.length);
+    }
 
     // Filtrar por búsqueda de texto
     if (busqueda.trim()) {
@@ -264,7 +297,7 @@ export default function LotesTab() {
 
     console.log('🔍 Lotes finales ordenados:', lotesFiltrados.length);
     return lotesFiltrados;
-  }, [lotes, busqueda, ordenamiento, ordenDescendente, estadisticasLotes]);
+  }, [lotes, busqueda, ordenamiento, ordenDescendente, estadisticasLotes, mostrarFinalizados]);
 
   const handleNuevoLote = () => {
     router.push('/ponedoras/nuevo-lote');
@@ -291,8 +324,52 @@ export default function LotesTab() {
     setMenuAccionesVisible(true);
   };
 
+  const handleLongPressLote = (lote: any) => {
+    setLoteParaCambiarEstado(lote);
+    setModalCambioEstadoVisible(true);
+  };
+
+  const handleCambiarEstado = async (nuevoEstado: EstadoLote) => {
+    if (!loteParaCambiarEstado) return;
+
+    try {
+      const { actualizarLote } = usePonedorasStore.getState();
+      await actualizarLote(loteParaCambiarEstado.id, { estado: nuevoEstado });
+      showSuccessAlert('Éxito', `Estado del lote cambiado a ${nuevoEstado}`);
+      setModalCambioEstadoVisible(false);
+      setLoteParaCambiarEstado(null);
+    } catch (error: any) {
+      console.error('Error al cambiar estado del lote:', error);
+      showErrorAlert('Error', error.message || 'No se pudo cambiar el estado del lote');
+    }
+  };
+
+  const handleEliminarLote = async (lote: any) => {
+    if (lote.estado === EstadoLote.ACTIVO) {
+      showErrorAlert('No se puede eliminar', 'No se puede eliminar un lote activo. Debe finalizarlo primero.');
+      return;
+    }
+
+    showConfirmationAlert(
+      'Eliminar Lote',
+      `¿Estás seguro de que deseas eliminar el lote "${lote.nombre}"? Esta acción no se puede deshacer.`,
+      async () => {
+        try {
+          await usePonedorasStore.getState().eliminarLote(lote.id);
+          showSuccessAlert('Éxito', 'Lote eliminado correctamente');
+        } catch (error: any) {
+          console.error('Error al eliminar lote:', error);
+          showErrorAlert('Error', error.message || 'No se pudo eliminar el lote');
+        }
+      },
+      undefined,
+      'Eliminar',
+      'Cancelar'
+    );
+  };
+
   const getAccionesParaLote = (lote: any): AccionLote[] => {
-    return [
+    const acciones: AccionLote[] = [
       {
         id: 'registrar-muerte',
         label: 'Registrar Muerte',
@@ -322,6 +399,19 @@ export default function LotesTab() {
         variant: 'primary',
       },
     ];
+
+    // Agregar opción de eliminar solo si el lote está finalizado
+    if (lote.estado !== EstadoLote.ACTIVO) {
+      acciones.push({
+        id: 'eliminar-lote',
+        label: 'Eliminar Lote',
+        icon: 'trash-outline',
+        onPress: () => handleEliminarLote(lote),
+        variant: 'danger',
+      });
+    }
+
+    return acciones;
   };
 
   // Obtener información de recolección para un lote específico
@@ -407,12 +497,22 @@ export default function LotesTab() {
           size="small"
           style={styles.dashboardButton}
         />
-        <Button 
-          title="Nuevo Lote" 
-          onPress={handleNuevoLote} 
-          size="small"
-          style={styles.addButton}
-        />
+        <View style={styles.headerActions}>
+          <Button 
+            title="Historial RH" 
+            onPress={() => router.push('/(tabs)/ponedoras/historial-registros-huevos')} 
+            size="small"
+            variant="outline"
+            style={styles.historialButton}
+          />
+          <TouchableOpacity
+            style={styles.addButtonIcon}
+            onPress={handleNuevoLote}
+            activeOpacity={0.7}
+          >
+            <Ionicons name="add" size={24} color={colors.white} />
+          </TouchableOpacity>
+        </View>
       </View>
 
       {/* Buscador */}
@@ -434,7 +534,7 @@ export default function LotesTab() {
         </View>
       </View>
 
-      {/* Selector de Ordenamiento */}
+      {/* Selector de Ordenamiento y Filtros */}
       <View style={styles.sortContainer}>
         <TouchableOpacity 
           style={styles.sortButton}
@@ -459,6 +559,26 @@ export default function LotesTab() {
             size={20} 
             color={colors.primary} 
           />
+        </TouchableOpacity>
+      </View>
+
+      {/* Toggle para mostrar/ocultar finalizados */}
+      <View style={styles.filterContainer}>
+        <TouchableOpacity 
+          style={styles.filterToggle}
+          onPress={() => {
+            console.log('🔄 Cambiando mostrar finalizados de', mostrarFinalizados, 'a', !mostrarFinalizados);
+            setMostrarFinalizados(!mostrarFinalizados);
+          }}
+        >
+          <Ionicons 
+            name={mostrarFinalizados ? "eye" : "eye-off"} 
+            size={18} 
+            color={mostrarFinalizados ? colors.primary : colors.textMedium} 
+          />
+          <Text style={[styles.filterToggleText, mostrarFinalizados && styles.filterToggleTextActive]}>
+            {mostrarFinalizados ? 'Mostrando todos' : 'Solo activos'}
+          </Text>
         </TouchableOpacity>
       </View>
 
@@ -558,7 +678,17 @@ export default function LotesTab() {
           
           {lotesFiltradosYOrdenados.map((lote, index) => {
             const eggInfo = getEggInfoForLote(lote.id);
-            const { costoUnitario, isLoading: loadingCosto } = costosUnitarios[lote.id] || { costoUnitario: 0, isLoading: false };
+            const { costoTotal } = costosPorHuevo[lote.id] || { costoTotal: 0, costoPorHuevo: 0, costoUnitario: 0, isLoading: false };
+            const huevosProducidos = estadisticasLotes[lote.id]?.huevos || 0;
+            
+            // Filtrar registros de huevos para este lote (para historial CPH)
+            const registrosLote = registrosHuevos 
+              ? registrosHuevos.filter(r => r.loteId === lote.id)
+              : [];
+            
+            // Obtener gastos del lote para historial CPH
+            const gastosLoteHistorial = gastosPorLote[lote.id] || [];
+
             const galpon = galpones.find((g) => g.id === lote.galponId);
             const badgeColors = galpon ? LOCATION_COLORS : LOCATION_COLORS_EMPTY;
             const badgeLabel = galpon ? galpon.nombre : 'Sin galpón';
@@ -573,6 +703,7 @@ export default function LotesTab() {
                 <TouchableOpacity
                   activeOpacity={0.7}
                   onPress={() => toggleLoteExpandido(lote.id)}
+                  onLongPress={() => handleLongPressLote(lote)}
                   style={styles.loteHeaderTouchable}
                 >
                   <View style={styles.loteHeader}>
@@ -621,19 +752,37 @@ export default function LotesTab() {
                       )}
                     </View>
                     <View style={styles.loteHeaderRight}>
-                      <View style={[styles.statusBadge, lote.estado === EstadoLote.ACTIVO ? styles.activeStatus : styles.inactiveStatus]}>
-                        <Text style={[styles.statusText, { color: lote.estado === EstadoLote.ACTIVO ? colors.success : colors.textMedium }]}>
-                          {lote.estado === EstadoLote.ACTIVO ? 'Activo' : 'Finalizado'}
+                      <View style={[
+                        styles.statusBadge, 
+                        lote.estado === EstadoLote.ACTIVO ? styles.activeStatus : 
+                        lote.estado === EstadoLote.VENDIDO ? styles.soldStatus :
+                        styles.inactiveStatus
+                      ]}>
+                        <Text style={[
+                          styles.statusText, 
+                          { 
+                            color: lote.estado === EstadoLote.ACTIVO ? colors.success : 
+                                   lote.estado === EstadoLote.VENDIDO ? colors.warning :
+                                   colors.textMedium 
+                          }
+                        ]}>
+                          {lote.estado === EstadoLote.ACTIVO ? 'Activo' : 
+                           lote.estado === EstadoLote.VENDIDO ? 'Vendido' :
+                           'Finalizado'}
                         </Text>
                       </View>
-                      <CostUnitarioBadge
-                        costoTotal={costoUnitario * (lote.cantidadInicial - (estadisticasLotes[lote.id]?.muertes || 0))}
-                        cantidadInicial={lote.cantidadInicial - (estadisticasLotes[lote.id]?.muertes || 0)}
+                      <CostPorHuevoBadge
+                        costoTotal={costoTotal}
+                        cantidadHuevos={huevosProducidos}
+                        cantidadInicial={lote.cantidadInicial}
                         cantidadActual={lote.cantidadActual}
                         loteId={lote.id}
                         tipoLote="PONEDORA"
                         size="small"
                         style={styles.costBadge}
+                        fechaInicio={lote.fechaInicio}
+                        registrosHuevos={registrosLote.map(r => ({ fecha: r.fecha, cantidad: r.cantidad }))}
+                        gastos={gastosLoteHistorial}
                       />
                     </View>
                   </View>
@@ -654,12 +803,27 @@ export default function LotesTab() {
                         </Text>
                         <Text style={styles.statLabel}>Gallinas Actuales</Text>
                       </View>
-                      <View style={styles.statItem}>
+                      <TouchableOpacity 
+                        style={styles.statItem}
+                        onPress={() => {
+                          if (!lote.id) {
+                            Alert.alert('Error', 'No se pudo identificar el lote');
+                            return;
+                          }
+                          console.log('Navegando a registros-huevos con loteId:', lote.id);
+                          router.push({
+                            pathname: '/(tabs)/ponedoras/registros-huevos',
+                            params: { loteId: lote.id }
+                          } as any);
+                        }}
+                        activeOpacity={0.7}
+                      >
                         <Text style={styles.statValue}>
                           {estadisticasLotes[lote.id]?.huevos || 0}
                         </Text>
                         <Text style={styles.statLabel}>Huevos Totales</Text>
-                      </View>
+                        <Text style={styles.statHint}>Toca para ver registros</Text>
+                      </TouchableOpacity>
                       <View style={styles.statItem}>
                         <Text style={styles.statValue}>
                           {estadisticasLotes[lote.id]?.muertes || 0}
@@ -721,6 +885,77 @@ export default function LotesTab() {
           titulo={`Acciones - ${loteParaAcciones.nombre}`}
         />
       )}
+
+      {/* Modal de cambio de estado */}
+      <Modal
+        visible={modalCambioEstadoVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => {
+          setModalCambioEstadoVisible(false);
+          setLoteParaCambiarEstado(null);
+        }}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContentEstado}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Cambiar Estado del Lote</Text>
+              <TouchableOpacity onPress={() => {
+                setModalCambioEstadoVisible(false);
+                setLoteParaCambiarEstado(null);
+              }}>
+                <Ionicons name="close" size={24} color={colors.textDark} />
+              </TouchableOpacity>
+            </View>
+            
+            {loteParaCambiarEstado && (
+              <>
+                <Text style={styles.modalSubtitle}>
+                  Lote: <Text style={styles.modalLoteNombre}>{loteParaCambiarEstado.nombre}</Text>
+                </Text>
+                <Text style={styles.modalEstadoActual}>
+                  Estado actual: <Text style={styles.modalEstadoTexto}>{loteParaCambiarEstado.estado}</Text>
+                </Text>
+                
+                <View style={styles.estadosContainer}>
+                  {Object.values(EstadoLote).map((estado) => (
+                    <TouchableOpacity
+                      key={estado}
+                      style={[
+                        styles.estadoOption,
+                        loteParaCambiarEstado.estado === estado && styles.estadoOptionSelected
+                      ]}
+                      onPress={() => handleCambiarEstado(estado)}
+                      disabled={loteParaCambiarEstado.estado === estado}
+                    >
+                      <Ionicons 
+                        name={
+                          estado === EstadoLote.ACTIVO ? 'play-circle' :
+                          estado === EstadoLote.FINALIZADO ? 'checkmark-circle' :
+                          estado === EstadoLote.VENDIDO ? 'cash' :
+                          estado === EstadoLote.CANCELADO ? 'close-circle' :
+                          'swap-horizontal'
+                        }
+                        size={24} 
+                        color={loteParaCambiarEstado.estado === estado ? colors.ponedoras : colors.textMedium} 
+                      />
+                      <Text style={[
+                        styles.estadoOptionText,
+                        loteParaCambiarEstado.estado === estado && styles.estadoOptionTextSelected
+                      ]}>
+                        {estado}
+                      </Text>
+                      {loteParaCambiarEstado.estado === estado && (
+                        <Ionicons name="checkmark" size={20} color={colors.ponedoras} />
+                      )}
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              </>
+            )}
+          </View>
+        </View>
+      </Modal>
       </>
       )}
     </ScrollView>
@@ -744,7 +979,25 @@ const styles = StyleSheet.create({
   dashboardButton: {
     minWidth: 100,
   },
-  addButton: {
+  headerActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  addButtonIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: colors.ponedoras,
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  historialButton: {
     minWidth: 100,
   },
   // Buscador
@@ -806,6 +1059,31 @@ const styles = StyleSheet.create({
     borderColor: colors.primary + '30',
   },
   
+  // Filtro de estado
+  filterContainer: {
+    marginBottom: 12,
+  },
+  filterToggle: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    backgroundColor: colors.white,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: colors.veryLightGray,
+  },
+  filterToggleText: {
+    fontSize: 14,
+    color: colors.textMedium,
+    marginLeft: 6,
+    fontWeight: '500',
+  },
+  filterToggleTextActive: {
+    color: colors.primary,
+  },
+  
   // Modal de Ordenamiento
   modalOverlay: {
     flex: 1,
@@ -853,6 +1131,63 @@ const styles = StyleSheet.create({
   ordenOptionTextSelected: {
     color: colors.primary,
     fontWeight: '500',
+  },
+  modalContentEstado: {
+    backgroundColor: colors.white,
+    borderRadius: 20,
+    paddingTop: 20,
+    paddingBottom: 30,
+    paddingHorizontal: 20,
+    marginHorizontal: 20,
+    maxHeight: '80%',
+  },
+  modalSubtitle: {
+    fontSize: 16,
+    color: colors.textMedium,
+    marginBottom: 8,
+  },
+  modalLoteNombre: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: colors.textDark,
+  },
+  modalEstadoActual: {
+    fontSize: 14,
+    color: colors.textMedium,
+    marginBottom: 20,
+  },
+  modalEstadoTexto: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: colors.ponedoras,
+  },
+  estadosContainer: {
+    gap: 12,
+  },
+  estadoOption: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: colors.veryLightGray,
+    backgroundColor: colors.white,
+  },
+  estadoOptionSelected: {
+    backgroundColor: colors.ponedoras + '10',
+    borderColor: colors.ponedoras + '50',
+  },
+  estadoOptionText: {
+    flex: 1,
+    fontSize: 16,
+    color: colors.textDark,
+    marginLeft: 12,
+    fontWeight: '500',
+  },
+  estadoOptionTextSelected: {
+    color: colors.ponedoras,
+    fontWeight: '600',
   },
   
   // Información de resultados
@@ -987,6 +1322,9 @@ const styles = StyleSheet.create({
   inactiveStatus: {
     backgroundColor: colors.lightGray + '20', // Transparencia
   },
+  soldStatus: {
+    backgroundColor: colors.warning + '20', // Transparencia
+  },
   statusText: {
     fontSize: 12,
     fontWeight: '500',
@@ -1008,6 +1346,13 @@ const styles = StyleSheet.create({
   statLabel: {
     fontSize: 14,
     color: colors.textMedium,
+  },
+  statHint: {
+    fontSize: 10,
+    color: colors.ponedoras,
+    textAlign: 'center',
+    marginTop: 2,
+    fontStyle: 'italic',
   },
   loteActions: {
     flexDirection: 'row',

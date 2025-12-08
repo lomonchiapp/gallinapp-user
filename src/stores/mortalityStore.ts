@@ -73,7 +73,20 @@ export const useMortalityStore = create<MortalityState>((set, get) => ({
   
   // Cargar registros de mortalidad (legacy - mantener compatibilidad)
   loadRegistrosMortalidad: async (loteId?: string, tipoLote?: TipoAve) => {
-    set({ isLoading: true, error: null });
+    // Si se especifica un tipoLote, actualizar isLoadingPorTipo
+    if (tipoLote) {
+      set(state => ({
+        isLoadingPorTipo: {
+          ...state.isLoadingPorTipo,
+          [tipoLote]: true
+        },
+        isLoading: true,
+        error: null
+      }));
+    } else {
+      set({ isLoading: true, error: null });
+    }
+    
     try {
       console.log('🔄 Cargando registros de mortalidad:', { loteId, tipoLote });
       const registros = await obtenerRegistrosMortalidad(loteId, tipoLote);
@@ -87,24 +100,65 @@ export const useMortalityStore = create<MortalityState>((set, get) => ({
         total = registros.reduce((sum, registro) => sum + registro.cantidad, 0);
       }
       
-      console.log(`✅ Cargados ${registros.length} registros de mortalidad`);
-      set({ 
-        registros, 
-        totalMortalidad: total,
-        isLoading: false 
-      });
+      console.log(`✅ Cargados ${registros.length} registros de mortalidad`, { tipoLote });
+      
+      // Si se especificó un tipoLote, actualizar registrosPorTipo
+      if (tipoLote) {
+        set(state => ({
+          registrosPorTipo: {
+            ...state.registrosPorTipo,
+            [tipoLote]: registros
+          },
+          totalMortalidadPorTipo: {
+            ...state.totalMortalidadPorTipo,
+            [tipoLote]: total
+          },
+          isLoadingPorTipo: {
+            ...state.isLoadingPorTipo,
+            [tipoLote]: false
+          },
+          registros,
+          totalMortalidad: total,
+          isLoading: false
+        }));
+      } else {
+        set({ 
+          registros, 
+          totalMortalidad: total,
+          isLoading: false 
+        });
+      }
     } catch (error: any) {
       console.error('❌ Error al cargar registros de mortalidad:', error);
-      set({ 
-        isLoading: false, 
-        error: error.message || 'Error al cargar registros de mortalidad' 
-      });
+      if (tipoLote) {
+        set(state => ({
+          isLoadingPorTipo: {
+            ...state.isLoadingPorTipo,
+            [tipoLote]: false
+          },
+          isLoading: false,
+          error: error.message || 'Error al cargar registros de mortalidad'
+        }));
+      } else {
+        set({ 
+          isLoading: false, 
+          error: error.message || 'Error al cargar registros de mortalidad' 
+        });
+      }
     }
   },
 
   // Cargar TODOS los registros por tipo de ave
   loadRegistrosPorTipo: async (tipoLote: TipoAve) => {
-    set({ isLoading: true, error: null });
+    set(state => ({
+      isLoadingPorTipo: {
+        ...state.isLoadingPorTipo,
+        [tipoLote]: true
+      },
+      isLoading: true,
+      error: null
+    }));
+    
     try {
       console.log('🔄 Cargando TODOS los registros de mortalidad para:', tipoLote);
       // Sin loteId específico - trae todos los registros del tipo
@@ -113,17 +167,34 @@ export const useMortalityStore = create<MortalityState>((set, get) => ({
       const total = registros.reduce((sum, registro) => sum + registro.cantidad, 0);
       
       console.log(`✅ Cargados ${registros.length} registros de mortalidad para ${tipoLote}`);
-      set({ 
-        registros, 
+      
+      set(state => ({
+        registrosPorTipo: {
+          ...state.registrosPorTipo,
+          [tipoLote]: registros
+        },
+        totalMortalidadPorTipo: {
+          ...state.totalMortalidadPorTipo,
+          [tipoLote]: total
+        },
+        isLoadingPorTipo: {
+          ...state.isLoadingPorTipo,
+          [tipoLote]: false
+        },
+        registros,
         totalMortalidad: total,
-        isLoading: false 
-      });
+        isLoading: false
+      }));
     } catch (error: any) {
       console.error('❌ Error al cargar registros de mortalidad por tipo:', error);
-      set({ 
-        isLoading: false, 
-        error: error.message || 'Error al cargar registros de mortalidad' 
-      });
+      set(state => ({
+        isLoadingPorTipo: {
+          ...state.isLoadingPorTipo,
+          [tipoLote]: false
+        },
+        isLoading: false,
+        error: error.message || 'Error al cargar registros de mortalidad'
+      }));
     }
   },
 

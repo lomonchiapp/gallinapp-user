@@ -20,7 +20,8 @@ export * from './useMortalidad';
 export { useArticulosStore } from '../stores/articulosStore';
 export { useAuthStore } from '../stores/authStore';
 export { useEngordeStore } from '../stores/engordeStore';
-export { useIsraeliesStore } from '../stores/levantesStore';
+export { useLevantesStore } from '../stores/levantesStore';
+export { useLevantesStore as useIsraeliesStore } from '../stores/levantesStore'; // Alias para compatibilidad
 export { useMortalityStore } from '../stores/mortalityStore';
 export { usePonedorasStore } from '../stores/ponedorasStore';
 export { useSettingsStore } from '../stores/settingsStore';

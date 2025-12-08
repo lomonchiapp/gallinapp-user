@@ -80,7 +80,11 @@ export const VentaForm: React.FC<VentaFormProps> = ({
   const canSubmit = cliente && items.length > 0 && !isLoading;
 
   const handleUpdateCantidad = (index: number, nuevaCantidad: string) => {
-    const cantidad = parseInt(nuevaCantidad, 10);
+    // Para productos de libras, usar parseFloat para permitir decimales
+    const item = items[index];
+    const esLibras = item?.producto?.tipo === TipoProducto.LIBRAS_POLLOS_ENGORDE;
+    const cantidad = esLibras ? parseFloat(nuevaCantidad) : parseInt(nuevaCantidad, 10);
+    
     if (!isNaN(cantidad) && cantidad > 0) {
       onUpdateItemCantidad(index, cantidad);
     }
@@ -139,9 +143,29 @@ export const VentaForm: React.FC<VentaFormProps> = ({
             <TextInput
               style={styles.cantidadInput}
               value={item.cantidad.toString()}
-              onChangeText={(text) => handleUpdateCantidad(index, text)}
-              onBlur={() => setEditingItem(null)}
-              keyboardType="numeric"
+              onChangeText={(text) => {
+                // Permitir edición en tiempo real para libras (decimales)
+                const esLibras = item.producto.tipo === TipoProducto.LIBRAS_POLLOS_ENGORDE;
+                if (esLibras) {
+                  const cantidad = parseFloat(text);
+                  if (!isNaN(cantidad) && cantidad > 0) {
+                    onUpdateItemCantidad(index, cantidad);
+                  }
+                } else {
+                  handleUpdateCantidad(index, text);
+                }
+              }}
+              onBlur={() => {
+                // Validar antes de cerrar
+                const esLibras = item.producto.tipo === TipoProducto.LIBRAS_POLLOS_ENGORDE;
+                const cantidad = esLibras ? parseFloat(item.cantidad.toString()) : parseInt(item.cantidad.toString(), 10);
+                if (isNaN(cantidad) || cantidad <= 0) {
+                  // Si la cantidad es inválida, restaurar a 1
+                  onUpdateItemCantidad(index, 1);
+                }
+                setEditingItem(null);
+              }}
+              keyboardType={item.producto.tipo === TipoProducto.LIBRAS_POLLOS_ENGORDE ? "decimal-pad" : "numeric"}
               autoFocus
             />
           ) : (
@@ -149,9 +173,16 @@ export const VentaForm: React.FC<VentaFormProps> = ({
               onPress={() => setEditingItem(index)}
               style={styles.cantidadButton}
             >
-              <Text style={styles.cantidadText}>
-                {item.cantidad} {item.producto.unidadMedida}
-              </Text>
+              <View>
+                <Text style={styles.cantidadText}>
+                  {item.cantidad} {item.producto.unidadMedida}
+                </Text>
+                {item.cantidadPollos && item.cantidadPollos > 0 && (
+                  <Text style={styles.pollosInfo}>
+                    ({item.cantidadPollos} pollo{item.cantidadPollos > 1 ? 's' : ''})
+                  </Text>
+                )}
+              </View>
               <Ionicons name="pencil" size={14} color={colors.textMedium} />
             </TouchableOpacity>
           )}
@@ -445,6 +476,12 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: colors.text,
     marginRight: 4,
+  },
+  pollosInfo: {
+    fontSize: 12,
+    color: colors.primary,
+    fontWeight: '600',
+    marginTop: 2,
   },
   cantidadInput: {
     borderWidth: 1,

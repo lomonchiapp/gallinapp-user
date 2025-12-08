@@ -24,7 +24,7 @@ import { colors } from '../../../src/constants/colors';
 import { useVentas } from '../../../src/hooks/useVentas';
 import { compartirFacturaPDF, generarFacturaPDF } from '../../../src/services/factura-pdf.service';
 import { facturasService } from '../../../src/services/facturas.service';
-import { EstadoVenta, Venta } from '../../../src/services/ventas.service';
+import { EstadoVenta, Venta, ventasService } from '../../../src/services/ventas.service';
 
 export default function DetalleVentaScreen() {
   const { id } = useLocalSearchParams();
@@ -42,12 +42,61 @@ export default function DetalleVentaScreen() {
   const cargarVenta = async () => {
     try {
       setLoading(true);
-      await getVentas();
-      const ventaEncontrada = ventas.find(v => v.id === id);
-      setVenta(ventaEncontrada || null);
+      
+      // Obtener el ID correcto (puede venir como string o array)
+      const ventaId = Array.isArray(id) ? id[0] : id;
+      
+      if (!ventaId) {
+        console.error('❌ [DetalleVenta] No se proporcionó ID de venta');
+        setVenta(null);
+        setLoading(false);
+        return;
+      }
+      
+      console.log('🔍 [DetalleVenta] Buscando venta con ID:', ventaId);
+      
+      // Primero intentar buscar en las ventas ya cargadas del hook
+      if (ventas.length > 0) {
+        const ventaEncontrada = ventas.find(v => v.id === ventaId);
+        if (ventaEncontrada) {
+          console.log('✅ [DetalleVenta] Venta encontrada en estado:', ventaEncontrada.numero);
+          setVenta(ventaEncontrada);
+          setLoading(false);
+          return;
+        }
+      }
+      
+      // Si no está en el estado, obtener directamente del servicio
+      console.log('⚠️ [DetalleVenta] Venta no encontrada en estado, buscando directamente en servicio...');
+      const todasLasVentas = await ventasService.getVentas();
+      
+      // Buscar por ID exacto
+      let ventaDirecta = todasLasVentas.find(v => v.id === ventaId);
+      
+      // Si no se encuentra, buscar por número de venta (por si acaso)
+      if (!ventaDirecta) {
+        ventaDirecta = todasLasVentas.find(v => v.numero === ventaId);
+      }
+      
+      if (ventaDirecta) {
+        console.log('✅ [DetalleVenta] Venta encontrada directamente:', ventaDirecta.numero, 'ID:', ventaDirecta.id);
+        setVenta(ventaDirecta);
+        // Actualizar el estado del hook también para futuras búsquedas
+        await getVentas();
+      } else {
+        console.error('❌ [DetalleVenta] Venta no encontrada con ID:', ventaId);
+        console.log('📊 [DetalleVenta] Total de ventas:', todasLasVentas.length);
+        if (todasLasVentas.length > 0) {
+          console.log('📊 [DetalleVenta] Primeros IDs disponibles:', todasLasVentas.slice(0, 5).map(v => ({ id: v.id, numero: v.numero })));
+        } else {
+          console.log('⚠️ [DetalleVenta] No hay ventas cargadas');
+        }
+        setVenta(null);
+      }
     } catch (error) {
-      console.error('Error cargando venta:', error);
+      console.error('❌ [DetalleVenta] Error cargando venta:', error);
       Alert.alert('Error', 'No se pudo cargar la venta');
+      setVenta(null);
     } finally {
       setLoading(false);
     }

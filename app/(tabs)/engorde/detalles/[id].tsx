@@ -4,7 +4,7 @@
 
 import { Ionicons } from '@expo/vector-icons';
 import { router, useLocalSearchParams } from 'expo-router';
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import {
     Alert,
     Modal,
@@ -31,7 +31,7 @@ import { useMortalityStore } from '../../../../src/stores/mortalityStore';
 import { EstadoLote, LoteEngorde, PesoRegistro, TipoAve } from '../../../../src/types';
 import { Galpon } from '../../../../src/types/galpon';
 import { calculateAgeInDays, formatDate } from '../../../../src/utils/dateUtils';
-import { formatWeight, WeightUnit } from '../../../../src/utils/weightUtils';
+import { formatWeight, WeightUnit, convertFromKg } from '../../../../src/utils/weightUtils';
 
 export default function DetallesLoteEngorde() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -160,6 +160,16 @@ export default function DetallesLoteEngorde() {
   };
 
   const handleEliminarLote = () => {
+    // Validar que el lote no esté activo
+    if (loteActual?.estado === EstadoLote.ACTIVO) {
+      Alert.alert(
+        'No se puede eliminar',
+        'No se puede eliminar un lote activo. Debe finalizarlo primero.',
+        [{ text: 'Entendido' }]
+      );
+      return;
+    }
+
     Alert.alert(
       'Eliminar Lote',
       `¿Estás seguro de que deseas eliminar el lote "${loteActual?.nombre}"? Esta acción no se puede deshacer.`,
@@ -177,9 +187,9 @@ export default function DetallesLoteEngorde() {
               await eliminarLote(id);
               Alert.alert('Éxito', 'Lote eliminado correctamente');
               router.back();
-            } catch (error) {
+            } catch (error: any) {
               console.error('Error al eliminar lote:', error);
-              Alert.alert('Error', 'No se pudo eliminar el lote');
+              Alert.alert('Error', error.message || 'No se pudo eliminar el lote');
             }
           }
         }
@@ -219,6 +229,7 @@ export default function DetallesLoteEngorde() {
     { id: 'general', label: 'General', icon: 'information-circle-outline' },
     { id: 'rendimiento', label: 'Rendimiento', icon: 'analytics-outline' },
     { id: 'gastos', label: 'Gastos', icon: 'receipt-outline' },
+    { id: 'ventas', label: 'Ventas', icon: 'cash-outline' },
     { id: 'mortalidad', label: 'Mortalidad', icon: 'warning-outline' }
   ];
 
@@ -244,7 +255,7 @@ export default function DetallesLoteEngorde() {
           )}
           {registrosPeso.length > 0 ? (
             <Text style={styles.weightInfo}>
-              Último peso: {formatWeight(registrosPeso[0].pesoPromedio, WeightUnit.POUNDS)}
+              Último peso: {formatWeight(convertFromKg(registrosPeso[0].pesoPromedio, WeightUnit.POUNDS), WeightUnit.POUNDS)}
             </Text>
           ) : (
             <Text style={styles.noWeightInfo}>
@@ -321,6 +332,12 @@ export default function DetallesLoteEngorde() {
             lote={loteActual}
             loteId={id}
             onRegistrarGasto={handleRegistrarGasto}
+          />
+        )}
+
+        {tabActivo === 'ventas' && loteActual && (
+          <TabVentas
+            lote={loteActual}
           />
         )}
 
@@ -440,10 +457,11 @@ function TabGeneral({
   // Pollos actuales ya están actualizados en cantidadActual
   const pollosActuales = lote.cantidadActual;
   
-  // Calcular peso promedio actual desde registros de peso
-  const pesoPromedio = registrosPeso.length > 0 
+  // Calcular peso promedio actual desde registros de peso (convertir de kg a libras)
+  const pesoPromedioKg = registrosPeso.length > 0 
     ? registrosPeso[0]?.pesoPromedio || 0 
     : 0;
+  const pesoPromedio = pesoPromedioKg > 0 ? convertFromKg(pesoPromedioKg, WeightUnit.POUNDS) : 0;
 
   return (
     <View style={styles.tabContent}>
@@ -464,10 +482,10 @@ function TabGeneral({
             <Text style={styles.summaryValue}>
               {(() => {
                 if (registrosPeso.length === 0) return 'Sin datos';
-                const pesoTotal = (registrosPeso[0] as any)?.pesoTotal || 0;
+                const pesoTotalKg = (registrosPeso[0] as any)?.pesoTotal || 0;
                 const cantidadPesados = (registrosPeso[0] as any)?.cantidadPollosPesados || 0;
-                if (pesoTotal <= 0 || cantidadPesados <= 0) return 'Sin datos';
-                return formatWeight(pesoTotal, WeightUnit.POUNDS);
+                if (pesoTotalKg <= 0 || cantidadPesados <= 0) return 'Sin datos';
+                return formatWeight(convertFromKg(pesoTotalKg, WeightUnit.POUNDS), WeightUnit.POUNDS);
               })()}
             </Text>
             <Text style={styles.summaryLabel}>Peso Total Último</Text>
@@ -480,8 +498,10 @@ function TabGeneral({
             <Text style={styles.summaryValue}>
               {(() => {
                 if (registrosPeso.length < 2) return 'Sin datos';
-                const pesoActual = registrosPeso[0]?.pesoPromedio || 0;
-                const pesoAnterior = registrosPeso[1]?.pesoPromedio || 0;
+                const pesoActualKg = registrosPeso[0]?.pesoPromedio || 0;
+                const pesoAnteriorKg = registrosPeso[1]?.pesoPromedio || 0;
+                const pesoActual = convertFromKg(pesoActualKg, WeightUnit.POUNDS);
+                const pesoAnterior = convertFromKg(pesoAnteriorKg, WeightUnit.POUNDS);
                 const ganancia = pesoActual - pesoAnterior;
                 return ganancia > 0 ? 
                   `+${formatWeight(ganancia, WeightUnit.POUNDS)}` : 
@@ -685,8 +705,8 @@ function TabPeso({
   registros: PesoRegistro[];
   onRegistrarPeso: () => void;
 }) {
-  // Calcular estadísticas generales
-  const estadisticasPeso = registros.length > 0 ? {
+  // Calcular estadísticas generales (en kg, luego convertir a libras para mostrar)
+  const estadisticasPesoKg = registros.length > 0 ? {
     ultimoPeso: registros[0]?.pesoPromedio || 0,
     pesoMaximo: registros.length > 0 ? Math.max(...registros.map(r => r.pesoPromedio || 0)) : 0,
     pesoMinimo: registros.length > 0 ? Math.min(...registros.map(r => r.pesoPromedio || 0)) : 0,
@@ -697,6 +717,14 @@ function TabPeso({
     pesoMaximo: 0,
     pesoMinimo: 0,
     crecimientoPromedio: 0
+  };
+  
+  // Convertir estadísticas de kg a libras
+  const estadisticasPeso = {
+    ultimoPeso: convertFromKg(estadisticasPesoKg.ultimoPeso, WeightUnit.POUNDS),
+    pesoMaximo: convertFromKg(estadisticasPesoKg.pesoMaximo, WeightUnit.POUNDS),
+    pesoMinimo: convertFromKg(estadisticasPesoKg.pesoMinimo, WeightUnit.POUNDS),
+    crecimientoPromedio: convertFromKg(estadisticasPesoKg.crecimientoPromedio, WeightUnit.POUNDS)
   };
 
   return (
@@ -774,7 +802,7 @@ function TabPeso({
                   {formatDate(registro.fecha)}
                 </Text>
                 <Text style={styles.registroTotal}>
-                  {formatWeight(registro.pesoPromedio, WeightUnit.POUNDS)}
+                  {formatWeight(convertFromKg(registro.pesoPromedio, WeightUnit.POUNDS), WeightUnit.POUNDS)}
                 </Text>
               </View>
               
@@ -795,11 +823,11 @@ function TabPeso({
                 <View style={styles.pesoRegistroRow}>
                   <View style={styles.pesoRegistroItem}>
                     <Text style={styles.pesoRegistroLabel}>Peso total</Text>
-                    <Text style={styles.pesoRegistroValue}>{formatWeight((registro as any).pesoTotal || 0, WeightUnit.POUNDS)}</Text>
+                    <Text style={styles.pesoRegistroValue}>{formatWeight(convertFromKg((registro as any).pesoTotal || 0, WeightUnit.POUNDS), WeightUnit.POUNDS)}</Text>
                   </View>
                   <View style={styles.pesoRegistroItem}>
                     <Text style={styles.pesoRegistroLabel}>Promedio</Text>
-                    <Text style={styles.pesoRegistroValue}>{formatWeight(registro.pesoPromedio, WeightUnit.POUNDS)}</Text>
+                    <Text style={styles.pesoRegistroValue}>{formatWeight(convertFromKg(registro.pesoPromedio, WeightUnit.POUNDS), WeightUnit.POUNDS)}</Text>
                   </View>
                 </View>
               </View>
@@ -1875,5 +1903,135 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: 'bold',
     color: colors.textDark,
+  },
+  // Estilos para Tab Ventas
+  ventasStatsCard: {
+    marginBottom: 16,
+    backgroundColor: colors.success + '05',
+    borderColor: colors.success + '20',
+    borderWidth: 1,
+  },
+  ventasStatsGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'space-between',
+  },
+  ventasStatItem: {
+    width: '48%',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  ventasStatValue: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: colors.textDark,
+  },
+  ventasStatLabel: {
+    fontSize: 12,
+    color: colors.textMedium,
+    marginTop: 2,
+    textAlign: 'center',
+  },
+  ventasList: {
+    gap: 12,
+  },
+  ventaCard: {
+    padding: 16,
+  },
+  ventaInfo: {
+    flex: 1,
+  },
+  ventaNumero: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: colors.textDark,
+  },
+  ventaFecha: {
+    fontSize: 13,
+    color: colors.textMedium,
+    marginTop: 2,
+  },
+  clienteNombre: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: colors.textDark,
+    marginTop: 8,
+    marginBottom: 8,
+  },
+  ventaDetalle: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  itemsCount: {
+    fontSize: 14,
+    color: colors.textMedium,
+  },
+  ventaTotal: {
+    fontSize: 22,
+    fontWeight: '800',
+    color: colors.primary,
+    letterSpacing: -0.5,
+  },
+  ventaItemsContainer: {
+    marginTop: 12,
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: colors.veryLightGray,
+  },
+  ventaItemRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 8,
+  },
+  ventaItemInfo: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+    gap: 8,
+  },
+  ventaItemNombre: {
+    fontSize: 14,
+    color: colors.textDark,
+    flex: 1,
+  },
+  ventaItemCantidad: {
+    alignItems: 'flex-end',
+  },
+  ventaItemCantidadText: {
+    fontSize: 13,
+    color: colors.textMedium,
+  },
+  ventaItemPrecio: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: colors.primary,
+    marginTop: 2,
+  },
+  estadoBadge: {
+    paddingVertical: 4,
+    paddingHorizontal: 10,
+    borderRadius: 12,
+    backgroundColor: colors.veryLightGray,
+  },
+  estadoConfirmada: {
+    backgroundColor: colors.success + '20',
+  },
+  estadoCancelada: {
+    backgroundColor: colors.error + '20',
+  },
+  estadoText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: colors.textMedium,
+    textTransform: 'uppercase',
+  },
+  estadoTextConfirmada: {
+    color: colors.success,
+  },
+  estadoTextCancelada: {
+    color: colors.error,
   },
 });

@@ -10,6 +10,7 @@ export enum TipoProducto {
   UNIDADES_GALLINAS_PONEDORAS = 'UNIDADES_GALLINAS_PONEDORAS',
   UNIDADES_POLLOS_LEVANTE = 'UNIDADES_POLLOS_LEVANTE',
   UNIDADES_POLLOS_ENGORDE = 'UNIDADES_POLLOS_ENGORDE',
+  LIBRAS_POLLOS_ENGORDE = 'LIBRAS_POLLOS_ENGORDE',
   HUEVOS = 'HUEVOS',
 }
 
@@ -75,8 +76,20 @@ export interface ProductoHuevos extends ProductoBase {
   registrosIds?: string[]; // IDs de los registros de producción que generan este producto
 }
 
+// Producto específico para libras de pollo de engorde
+export interface ProductoLibrasEngorde extends ProductoBase {
+  tipo: TipoProducto.LIBRAS_POLLOS_ENGORDE;
+  loteId: string;
+  edadActual: number;
+  cantidadTotal: number; // Cantidad de pollos disponibles en el lote
+  raza: string;
+  fechaInicio: Date;
+  pesoPromedio?: number; // Peso promedio en libras por pollo
+  pesoTotalDisponible?: number; // Peso total disponible en libras (cantidadTotal * pesoPromedio)
+}
+
 // Union type para todos los productos
-export type Producto = ProductoLoteCompleto | ProductoUnidades | ProductoHuevos;
+export type Producto = ProductoLoteCompleto | ProductoUnidades | ProductoHuevos | ProductoLibrasEngorde;
 
 // Item de factura
 export interface ItemFactura {

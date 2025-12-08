@@ -171,10 +171,12 @@ export const useEngordeStore = create<EngordeState>((set, get) => ({
   },
   
   suscribirseAEngorde: () => {
+    console.log('🔄 [Engorde Store] Iniciando suscripción...');
     // Marcar como cargando al iniciar la suscripción
     set({ isLoading: true, error: null });
     
-    return suscribirseALotesEngorde(async (lotes) => {
+    const unsubscribe = suscribirseALotesEngorde(async (lotes) => {
+      console.log(`📥 [Engorde Store] Recibidos ${lotes.length} lotes`);
       set({ lotes, isLoading: false, error: null });
       
       // 🐔 MONITOREO AUTOMÁTICO DE BIENESTAR ANIMAL
@@ -197,8 +199,24 @@ export const useEngordeStore = create<EngordeState>((set, get) => ({
         console.log('✅ [Engorde] Monitoreo de bienestar completado');
       } catch (error) {
         console.error('❌ [Engorde] Error en monitoreo automático:', error);
+        // No afectar el estado de carga si falla el monitoreo
       }
     });
+    
+    // Timeout de seguridad: si después de 10 segundos no hay respuesta, marcar como cargado
+    const timeoutId = setTimeout(() => {
+      const currentState = get();
+      if (currentState.isLoading && currentState.lotes.length === 0) {
+        console.warn('⚠️ [Engorde Store] Timeout: Marcando como cargado sin lotes');
+        set({ isLoading: false });
+      }
+    }, 10000);
+    
+    // Retornar función de limpieza que también cancela el timeout
+    return () => {
+      clearTimeout(timeoutId);
+      unsubscribe();
+    };
   },
   
   // Acciones - Errores

@@ -3,8 +3,8 @@
  */
 
 import { create } from 'zustand';
+import { obtenerRegistrosHuevos, obtenerTodosRegistrosHuevos } from '../services/ponedoras.service';
 import { HuevoRegistro } from '../types/ponedoras/HuevoRegistro';
-import { obtenerRegistrosProduccionPorLote, obtenerTodosRegistrosProduccion } from '../services/ponedoras.service';
 
 interface HuevosState {
   // Estados
@@ -36,22 +36,11 @@ export const useHuevosStore = create<HuevosState>((set, get) => ({
     set({ isLoading: true, error: null });
     
     try {
-      const registros = await obtenerTodosRegistrosProduccion();
-      console.log('🥚 HuevosStore: Registros de producción cargados:', registros.length);
-      
-      // Convertir a HuevoRegistro format
-      const huevoRegistros: HuevoRegistro[] = registros.map(registro => ({
-        id: registro.id,
-        loteId: registro.loteId,
-        fecha: registro.fecha,
-        cantidad: registro.cantidadHuevosPequenos + 
-                  registro.cantidadHuevosMedianos + 
-                  registro.cantidadHuevosGrandes + 
-                  registro.cantidadHuevosExtraGrandes
-      }));
+      const registros = await obtenerTodosRegistrosHuevos();
+      console.log('🥚 HuevosStore: Registros de huevos cargados:', registros.length);
       
       set({ 
-        registrosHuevos: huevoRegistros,
+        registrosHuevos: registros,
         isLoading: false,
         lastUpdated: new Date()
       });
@@ -70,24 +59,13 @@ export const useHuevosStore = create<HuevosState>((set, get) => ({
     set({ isLoading: true, error: null });
     
     try {
-      const registros = await obtenerRegistrosProduccionPorLote(loteId);
+      const registros = await obtenerRegistrosHuevos(loteId);
       console.log('🥚 HuevosStore: Registros cargados:', registros.length);
-      
-      // Convertir a HuevoRegistro format
-      const huevoRegistros: HuevoRegistro[] = registros.map(registro => ({
-        id: registro.id,
-        loteId: registro.loteId,
-        fecha: registro.fecha,
-        cantidad: registro.cantidadHuevosPequenos + 
-                  registro.cantidadHuevosMedianos + 
-                  registro.cantidadHuevosGrandes + 
-                  registro.cantidadHuevosExtraGrandes
-      }));
       
       // Actualizar o agregar registros para este lote
       const { registrosHuevos: existingRegistros } = get();
       const filteredExisting = existingRegistros.filter(r => r.loteId !== loteId);
-      const newRegistros = [...filteredExisting, ...huevoRegistros];
+      const newRegistros = [...filteredExisting, ...registros];
       
       set({ 
         registrosHuevos: newRegistros,

@@ -181,6 +181,16 @@ export default function DetallesLoteLevante() {
   };
 
   const handleEliminarLote = () => {
+    // Validar que el lote no esté activo
+    if (loteActual?.estado === EstadoLote.ACTIVO) {
+      Alert.alert(
+        'No se puede eliminar',
+        'No se puede eliminar un lote activo. Debe finalizarlo primero.',
+        [{ text: 'Entendido' }]
+      );
+      return;
+    }
+
     Alert.alert(
       'Eliminar Lote',
       `¿Estás seguro de que deseas eliminar el lote "${loteActual?.nombre}"? Esta acción no se puede deshacer.`,
@@ -198,9 +208,9 @@ export default function DetallesLoteLevante() {
               await eliminarLote(id);
               Alert.alert('Éxito', 'Lote eliminado correctamente');
               router.back();
-            } catch (error) {
+            } catch (error: any) {
               console.error('Error al eliminar lote:', error);
-              Alert.alert('Error', 'No se pudo eliminar el lote');
+              Alert.alert('Error', error.message || 'No se pudo eliminar el lote');
             }
           }
         }

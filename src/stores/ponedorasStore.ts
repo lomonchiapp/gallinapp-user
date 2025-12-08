@@ -654,10 +654,38 @@ export const usePonedorasStore = create<PonedorasState>((set, get) => ({
       const { lotes } = get();
       const estadisticas: { [loteId: string]: { huevos: number; muertes: number } } = {};
 
+      // Importar servicio de ventas para obtener ventas de huevos
+      const { getVentasPorLote } = await import('../services/ventas.service');
+
       for (const lote of lotes) {
         // Cargar registros de huevos
         const registrosHuevos = await obtenerRegistrosHuevos(lote.id);
-        const huevos = registrosHuevos.reduce((total, registro) => total + registro.cantidad, 0);
+        const huevosProducidos = registrosHuevos.reduce((total, registro) => total + registro.cantidad, 0);
+
+        // Obtener ventas de huevos para este lote
+        let huevosVendidos = 0;
+        try {
+          const ventas = await getVentasPorLote(lote.id, TipoAve.PONEDORA);
+          const ventasConfirmadas = ventas.filter(v => v.estado === 'CONFIRMADA');
+          
+          huevosVendidos = ventasConfirmadas.reduce((sum, venta) => {
+            return sum + venta.items.reduce((itemSum: number, item: any) => {
+              if (item.producto.tipo === 'HUEVOS') {
+                const productoHuevos = item.producto;
+                if (productoHuevos.unidadVenta === 'CAJAS') {
+                  return itemSum + (item.cantidad * (productoHuevos.cantidadPorCaja || 30));
+                }
+                return itemSum + item.cantidad;
+              }
+              return itemSum;
+            }, 0);
+          }, 0);
+        } catch (error) {
+          console.warn(`Error al obtener ventas de huevos para lote ${lote.id}:`, error);
+        }
+
+        // Calcular huevos disponibles (producidos - vendidos)
+        const huevos = Math.max(0, huevosProducidos - huevosVendidos);
 
         // Cargar registros de mortalidad
         const registrosMortalidad = await obtenerRegistrosMortalidad(lote.id, TipoAve.PONEDORA);

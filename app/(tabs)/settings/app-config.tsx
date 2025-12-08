@@ -6,10 +6,10 @@ import { Ionicons } from '@expo/vector-icons';
 import React, { useEffect, useState } from 'react';
 import {
     ActivityIndicator,
-    Alert,
     Modal,
     ScrollView,
     StyleSheet,
+    Switch,
     Text,
     TouchableOpacity,
     View
@@ -28,6 +28,7 @@ import {
 import { useAppConfigStore } from '../../../src/stores/appConfigStore';
 import { useAuthStore } from '../../../src/stores/authStore';
 import { User, UserRole } from '../../../src/types';
+import { showErrorAlert, showSuccessAlert, showConfirmationAlert } from '../../../src/utils/alert.service';
 
 export default function AppSettingsScreen() {
   const { config, isLoading, error, cargarConfiguracion, actualizarConfig } = useAppConfigStore();
@@ -41,6 +42,14 @@ export default function AppSettingsScreen() {
   const [diasCrecimientoEngorde, setDiasCrecimientoEngorde] = useState('');
   const [pesoObjetivoEngorde, setPesoObjetivoEngorde] = useState('');
   const [tasaMortalidadAceptable, setTasaMortalidadAceptable] = useState('');
+  
+  // Estados para configuración de notificaciones
+  const [alertasHabilitadas, setAlertasHabilitadas] = useState(true);
+  const [mostrarAlertasExito, setMostrarAlertasExito] = useState(true);
+  const [mostrarAlertasError, setMostrarAlertasError] = useState(true);
+  const [mostrarAlertasConfirmacion, setMostrarAlertasConfirmacion] = useState(true);
+  const [sonidoAlertas, setSonidoAlertas] = useState(true);
+  const [vibrarEnAlertas, setVibrarEnAlertas] = useState(true);
   
   // Estados para gestión de usuarios
   const [users, setUsers] = useState<User[]>([]);
@@ -74,7 +83,7 @@ export default function AppSettingsScreen() {
       const allUsers = await getAllUsers();
       setUsers(allUsers);
     } catch (error) {
-      Alert.alert('Error', 'No se pudieron cargar los usuarios');
+      showErrorAlert('Error', 'No se pudieron cargar los usuarios');
     } finally {
       setLoadingUsers(false);
     }
@@ -113,11 +122,11 @@ export default function AppSettingsScreen() {
           displayName: userForm.displayName,
           role: userForm.role
         });
-        Alert.alert('Éxito', 'Usuario actualizado correctamente');
+        showSuccessAlert('Éxito', 'Usuario actualizado correctamente');
       } else {
         // Crear nuevo usuario
         if (!userForm.email || !userForm.displayName || !userForm.password) {
-          Alert.alert('Error', 'Todos los campos son obligatorios');
+          showErrorAlert('Error', 'Todos los campos son obligatorios');
           return;
         }
         
@@ -128,46 +137,41 @@ export default function AppSettingsScreen() {
           userForm.role
         );
         
-        Alert.alert(
+        showSuccessAlert(
           'Usuario Creado',
-          `Usuario creado exitosamente.\n\nEmail: ${userForm.email}\nContraseña temporal: ${userForm.password}\n\nEl usuario deberá cambiar su contraseña en el primer inicio de sesión.`,
-          [{ text: 'OK' }]
+          `Usuario creado exitosamente.\n\nEmail: ${userForm.email}\nContraseña temporal: ${userForm.password}\n\nEl usuario deberá cambiar su contraseña en el primer inicio de sesión.`
         );
       }
       
       setShowUserModal(false);
       loadUsers(); // Recargar lista de usuarios
     } catch (error: any) {
-      Alert.alert('Error', error.message || 'No se pudo guardar el usuario');
+      showErrorAlert('Error', error.message || 'No se pudo guardar el usuario');
     }
   };
   
   // Eliminar usuario
   const handleDeleteUser = (userToDelete: User) => {
     if (userToDelete.uid === user?.uid) {
-      Alert.alert('Error', 'No puedes eliminar tu propio usuario');
+      showErrorAlert('Error', 'No puedes eliminar tu propio usuario');
       return;
     }
     
-    Alert.alert(
+    showConfirmationAlert(
       'Confirmar Eliminación',
       `¿Estás seguro de que deseas eliminar al usuario "${userToDelete.displayName}"?`,
-      [
-        { text: 'Cancelar', style: 'cancel' },
-        {
-          text: 'Eliminar',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              await deleteUserByAdmin(userToDelete.uid);
-              Alert.alert('Éxito', 'Usuario eliminado correctamente');
-              loadUsers(); // Recargar lista de usuarios
-            } catch (error) {
-              Alert.alert('Error', 'No se pudo eliminar el usuario');
-            }
-          }
+      async () => {
+        try {
+          await deleteUserByAdmin(userToDelete.uid);
+          showSuccessAlert('Éxito', 'Usuario eliminado correctamente');
+          loadUsers(); // Recargar lista de usuarios
+        } catch (error) {
+          showErrorAlert('Error', 'No se pudo eliminar el usuario');
         }
-      ]
+      },
+      undefined,
+      'Eliminar',
+      'Cancelar'
     );
   };
   
@@ -181,6 +185,16 @@ export default function AppSettingsScreen() {
       setDiasCrecimientoEngorde(config.diasCrecimientoEngorde.toString());
       setPesoObjetivoEngorde(config.pesoObjetivoEngorde.toString());
       setTasaMortalidadAceptable(config.tasaMortalidadAceptable.toString());
+      
+      // Cargar configuración de notificaciones
+      if (config.notificaciones) {
+        setAlertasHabilitadas(config.notificaciones.alertasHabilitadas);
+        setMostrarAlertasExito(config.notificaciones.mostrarAlertasExito);
+        setMostrarAlertasError(config.notificaciones.mostrarAlertasError);
+        setMostrarAlertasConfirmacion(config.notificaciones.mostrarAlertasConfirmacion);
+        setSonidoAlertas(config.notificaciones.sonidoAlertas);
+        setVibrarEnAlertas(config.notificaciones.vibrarEnAlertas);
+      }
     }
   }, [config]);
   
@@ -201,15 +215,28 @@ export default function AppSettingsScreen() {
       // Verificar que todos los valores sean números válidos
       for (const [key, value] of Object.entries(settings)) {
         if (isNaN(value) || value < 0) {
-          Alert.alert('Error', `El valor para ${key} no es válido`);
+          showErrorAlert('Error', `El valor para ${key} no es válido`);
           return;
         }
       }
       
-      await actualizarConfig(settings);
-      Alert.alert('Éxito', 'Configuración guardada correctamente');
+      // Agregar configuración de notificaciones
+      const settingsCompletos = {
+        ...settings,
+        notificaciones: {
+          alertasHabilitadas,
+          mostrarAlertasExito,
+          mostrarAlertasError,
+          mostrarAlertasConfirmacion,
+          sonidoAlertas,
+          vibrarEnAlertas,
+        },
+      };
+      
+      await actualizarConfig(settingsCompletos);
+      showSuccessAlert('Éxito', 'Configuración guardada correctamente');
     } catch (error) {
-      Alert.alert('Error', 'No se pudo guardar la configuración');
+      showErrorAlert('Error', 'No se pudo guardar la configuración');
     }
   };
   
@@ -348,6 +375,94 @@ export default function AppSettingsScreen() {
             placeholder="0.00"
             required
           />
+        </View>
+      </Card>
+      
+      <Card style={styles.settingsCard}>
+        <Text style={styles.sectionTitle}>Configuración de Notificaciones</Text>
+        
+        <View style={styles.switchGroup}>
+          <View style={styles.switchRow}>
+            <View style={styles.switchLabelContainer}>
+              <Ionicons name="notifications-outline" size={20} color={colors.textDark} />
+              <Text style={styles.switchLabel}>Alertas Habilitadas</Text>
+            </View>
+            <Switch
+              value={alertasHabilitadas}
+              onValueChange={setAlertasHabilitadas}
+              trackColor={{ false: colors.lightGray, true: colors.primary }}
+              thumbColor={colors.white}
+            />
+          </View>
+          
+          {alertasHabilitadas && (
+            <>
+              <View style={styles.switchRow}>
+                <View style={styles.switchLabelContainer}>
+                  <Ionicons name="checkmark-circle-outline" size={20} color={colors.success} />
+                  <Text style={styles.switchLabel}>Mostrar Alertas de Éxito</Text>
+                </View>
+                <Switch
+                  value={mostrarAlertasExito}
+                  onValueChange={setMostrarAlertasExito}
+                  trackColor={{ false: colors.lightGray, true: colors.success }}
+                  thumbColor={colors.white}
+                />
+              </View>
+              
+              <View style={styles.switchRow}>
+                <View style={styles.switchLabelContainer}>
+                  <Ionicons name="alert-circle-outline" size={20} color={colors.danger} />
+                  <Text style={styles.switchLabel}>Mostrar Alertas de Error</Text>
+                </View>
+                <Switch
+                  value={mostrarAlertasError}
+                  onValueChange={setMostrarAlertasError}
+                  trackColor={{ false: colors.lightGray, true: colors.danger }}
+                  thumbColor={colors.white}
+                />
+              </View>
+              
+              <View style={styles.switchRow}>
+                <View style={styles.switchLabelContainer}>
+                  <Ionicons name="help-circle-outline" size={20} color={colors.warning} />
+                  <Text style={styles.switchLabel}>Mostrar Alertas de Confirmación</Text>
+                </View>
+                <Switch
+                  value={mostrarAlertasConfirmacion}
+                  onValueChange={setMostrarAlertasConfirmacion}
+                  trackColor={{ false: colors.lightGray, true: colors.warning }}
+                  thumbColor={colors.white}
+                />
+              </View>
+              
+              <View style={styles.switchRow}>
+                <View style={styles.switchLabelContainer}>
+                  <Ionicons name="volume-high-outline" size={20} color={colors.textDark} />
+                  <Text style={styles.switchLabel}>Sonido en Alertas</Text>
+                </View>
+                <Switch
+                  value={sonidoAlertas}
+                  onValueChange={setSonidoAlertas}
+                  trackColor={{ false: colors.lightGray, true: colors.primary }}
+                  thumbColor={colors.white}
+                />
+              </View>
+              
+              <View style={styles.switchRow}>
+                <View style={styles.switchLabelContainer}>
+                  <Ionicons name="phone-portrait-outline" size={20} color={colors.textDark} />
+                  <Text style={styles.switchLabel}>Vibrar en Alertas</Text>
+                </View>
+                <Switch
+                  value={vibrarEnAlertas}
+                  onValueChange={setVibrarEnAlertas}
+                  trackColor={{ false: colors.lightGray, true: colors.primary }}
+                  thumbColor={colors.white}
+                />
+              </View>
+            </>
+          )}
         </View>
       </Card>
       
@@ -675,6 +790,26 @@ const styles = StyleSheet.create({
   },
   saveButton: {
     height: 50,
+  },
+  switchGroup: {
+    gap: 16,
+  },
+  switchRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 8,
+  },
+  switchLabelContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    flex: 1,
+  },
+  switchLabel: {
+    fontSize: 16,
+    color: colors.textDark,
+    flex: 1,
   },
   
   // Users Section

@@ -160,13 +160,28 @@ export const finalizarLoteLevante = async (id: string): Promise<void> => {
 
 /**
  * Eliminar un lote de pollos levantes
+ * Solo permite eliminar lotes que NO estén activos
  */
 export const eliminarLoteLevante = async (id: string): Promise<void> => {
     try {
         const userId = getCurrentUserId();
         if (!userId) throw new Error('Usuario no autenticado');
 
+        // Obtener el lote primero para validar su estado
         const loteRef = doc(db, LOTES_COLLECTION, id);
+        const loteDoc = await getDoc(loteRef);
+        
+        if (!loteDoc.exists()) {
+            throw new Error('Lote no encontrado');
+        }
+
+        const loteData = loteDoc.data();
+        
+        // Validar que el lote NO esté activo
+        if (loteData.estado === EstadoLote.ACTIVO) {
+            throw new Error('No se puede eliminar un lote activo. Debe finalizarlo primero.');
+        }
+
         await deleteDoc(loteRef);
     } catch (error) {
         console.error('Error al eliminar lote de levantes:', error);

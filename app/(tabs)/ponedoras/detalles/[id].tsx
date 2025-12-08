@@ -4,9 +4,10 @@
 
 import { Ionicons } from '@expo/vector-icons';
 import { router, useLocalSearchParams } from 'expo-router';
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import {
     Alert,
+    Dimensions,
     Modal,
     RefreshControl,
     ScrollView,
@@ -18,10 +19,14 @@ import {
 import Button from '../../../../src/components/ui/Button';
 import Card from '../../../../src/components/ui/Card';
 import CostoProduccionHuevos from '../../../../src/components/ui/CostoProduccionHuevos';
+import CostPorHuevoBadge from '../../../../src/components/ui/CostPorHuevoBadge';
+import DatePicker from '../../../../src/components/ui/DatePicker';
 import GastoSheet from '../../../../src/components/ui/GastoSheet';
 import { colors } from '../../../../src/constants/colors';
 import { useGalpones } from '../../../../src/hooks/useGalpones';
 import { exportarYCompartir } from '../../../../src/services/pdf-export.service';
+import { calcularDesgloseCostos } from '../../../../src/services/costos-produccion-huevos.service';
+import { getVentasPorLote } from '../../../../src/services/ventas.service';
 import { useArticulosStore } from '../../../../src/stores/articulosStore';
 import { useMortalityStore } from '../../../../src/stores/mortalityStore';
 import { usePonedorasStore } from '../../../../src/stores/ponedorasStore';
@@ -164,6 +169,16 @@ export default function DetallesLotePonedora() {
   };
 
   const handleEliminarLote = () => {
+    // Validar que el lote no esté activo
+    if (loteActual?.estado === EstadoLote.ACTIVO) {
+      Alert.alert(
+        'No se puede eliminar',
+        'No se puede eliminar un lote activo. Debe finalizarlo primero.',
+        [{ text: 'Entendido' }]
+      );
+      return;
+    }
+
     Alert.alert(
       'Eliminar Lote',
       `¿Estás seguro de que deseas eliminar el lote "${loteActual?.nombre}"? Esta acción no se puede deshacer.`,
@@ -180,9 +195,9 @@ export default function DetallesLotePonedora() {
               await eliminarLote(id);
               Alert.alert('Éxito', 'Lote eliminado correctamente');
               router.back();
-            } catch (error) {
+            } catch (error: any) {
               console.error('Error al eliminar lote:', error);
-              Alert.alert('Error', 'No se pudo eliminar el lote');
+              Alert.alert('Error', error.message || 'No se pudo eliminar el lote');
             }
           }
         }
@@ -196,6 +211,7 @@ export default function DetallesLotePonedora() {
     { id: 'produccion', label: 'Producción', icon: 'egg-outline' },
     { id: 'costos', label: 'Costos', icon: 'calculator-outline' },
     { id: 'gastos', label: 'Gastos', icon: 'receipt-outline' },
+    { id: 'ventas', label: 'Ventas', icon: 'cash-outline' },
     { id: 'mortalidad', label: 'Mortalidad', icon: 'warning-outline' },
     { id: 'dashboard', label: 'Dashboard', icon: 'analytics-outline' }
   ];
@@ -299,6 +315,7 @@ export default function DetallesLotePonedora() {
                 onRegistrarMuerte={handleRegistrarMuerte}
                 onRegistrarGasto={handleRegistrarGasto}
                 galpones={galpones}
+                gastosLote={gastosLote}
               />
             )}
 
@@ -313,6 +330,8 @@ export default function DetallesLotePonedora() {
             {tabActivo === 'costos' && loteActual && (
               <TabCostosProduccion
                 lote={loteActual}
+                gastosLote={gastosLote}
+                registrosHuevos={registrosHuevos}
               />
             )}
 
@@ -324,6 +343,12 @@ export default function DetallesLotePonedora() {
               />
             )}
 
+            {tabActivo === 'ventas' && loteActual && (
+              <TabVentas
+                lote={loteActual}
+              />
+            )}
+
             {tabActivo === 'mortalidad' && loteActual && (
               <TabMortalidad
                 lote={loteActual}
@@ -332,8 +357,14 @@ export default function DetallesLotePonedora() {
               />
             )}
 
-            {tabActivo === 'dashboard' && (
-              <TabDashboard />
+            {tabActivo === 'dashboard' && loteActual && (
+              <TabDashboard
+                lote={loteActual}
+                gastosLote={gastosLote}
+                registrosHuevos={registrosHuevos}
+                registrosMortalidad={registrosMortalidad}
+                estadisticas={estadisticasLote}
+              />
             )}
           </ScrollView>
 
@@ -420,6 +451,7 @@ function TabGeneral({
   onRegistrarMuerte, 
   onRegistrarGasto,
   galpones,
+  gastosLote,
 }: {
   lote: LotePonedora;
   estadisticas: any;
@@ -429,6 +461,7 @@ function TabGeneral({
   onRegistrarMuerte: () => void;
   onRegistrarGasto: () => void;
   galpones: Galpon[];
+  gastosLote: any[];
 }) {
   // Calcular huevos totales desde los registros reales
   const huevosTotales = registrosHuevos.reduce((total, registro) => total + registro.cantidad, 0);
@@ -438,6 +471,48 @@ function TabGeneral({
   
   // Gallinas actuales ya están actualizadas en cantidadActual
   const gallinasActuales = lote.cantidadActual;
+  
+  // Calcular costo total del lote (costo inicial + gastos adicionales)
+  const costoInicial = lote.costo || 0;
+  const gastosAdicionales = gastosLote
+    .filter(gasto => !(gasto.descripcion?.toLowerCase().includes('costo inicial') || 
+                      gasto.articuloNombre?.toLowerCase().includes('costo inicial')))
+    .reduce((total, gasto) => total + gasto.total, 0);
+  const costoTotal = costoInicial + gastosAdicionales;
+  
+  // Preparar datos para el badge CPH
+  const registrosHuevosParaBadge = registrosHuevos.map(r => ({
+    fecha: r.fecha instanceof Date ? r.fecha : new Date(r.fecha),
+    cantidad: r.cantidad
+  }));
+  
+  const gastosParaBadge = gastosLote.map(g => ({
+    fecha: g.fecha instanceof Date ? g.fecha : new Date(g.fecha),
+    total: g.total
+  }));
+  
+  // Estado para el costo unitario del ave (CPU)
+  const [costoUnitarioAve, setCostoUnitarioAve] = useState<number | null>(null);
+  const [isLoadingCPU, setIsLoadingCPU] = useState(false);
+
+  // Calcular costo unitario del ave (CPU)
+  useEffect(() => {
+    const calcularCPU = async () => {
+      try {
+        setIsLoadingCPU(true);
+        const desglose = await calcularDesgloseCostos(lote);
+        setCostoUnitarioAve(desglose.costoTotalPorAve);
+      } catch (error) {
+        console.error('Error al calcular CPU:', error);
+        setCostoUnitarioAve(null);
+      } finally {
+        setIsLoadingCPU(false);
+      }
+    };
+
+    calcularCPU();
+  }, [lote.id]);
+
   return (
     <View style={styles.tabContent}>
       {/* Resumen del lote */}
@@ -448,10 +523,25 @@ function TabGeneral({
             <Text style={styles.summaryValue}>{gallinasActuales}</Text>
             <Text style={styles.summaryLabel}>Gallinas Actuales</Text>
           </View>
-          <View style={styles.summaryItem}>
+          <TouchableOpacity
+            style={styles.summaryItem}
+            onPress={() => {
+              if (!lote.id) {
+                Alert.alert('Error', 'No se pudo identificar el lote');
+                return;
+              }
+              console.log('Navegando a registros-huevos con loteId:', lote.id);
+              router.push({
+                pathname: '/(tabs)/ponedoras/registros-huevos',
+                params: { loteId: lote.id }
+              } as any);
+            }}
+            activeOpacity={0.7}
+          >
             <Text style={styles.summaryValue}>{huevosTotales}</Text>
             <Text style={styles.summaryLabel}>Huevos Totales</Text>
-          </View>
+            <Text style={styles.summaryHint}>Toca para ver registros</Text>
+          </TouchableOpacity>
           <View style={styles.summaryItem}>
             <Text style={styles.summaryValue}>
               {gallinasActuales > 0 ? ((huevosTotales / gallinasActuales) * 100 / (registrosHuevos.length || 1)).toFixed(1) : 0}%
@@ -513,6 +603,50 @@ function TabGeneral({
         )}
       </Card>
 
+      {/* Costo Unitario del Ave (CPU) y Costo por Huevo (CPH) */}
+      <Card style={styles.cpuCard}>
+        <View style={styles.cpuHeader}>
+          <Ionicons name="cash-outline" size={24} color={moduleColors.badgeText} />
+          <Text style={styles.cardTitle}>Costos de Producción</Text>
+        </View>
+        <View style={styles.costosContainer}>
+          {isLoadingCPU ? (
+            <View style={styles.loadingContainer}>
+              <Text style={styles.loadingText}>Calculando...</Text>
+            </View>
+          ) : costoUnitarioAve !== null ? (
+            <View style={styles.cpuContent}>
+              <View style={styles.costoRow}>
+                <View style={styles.costoItem}>
+                  <Text style={styles.costoLabel}>CPU (por gallina):</Text>
+                  <Text style={styles.cpuValue}>RD${costoUnitarioAve.toFixed(2)}</Text>
+                </View>
+                <CostPorHuevoBadge
+                  costoTotal={costoTotal}
+                  cantidadHuevos={huevosTotales}
+                  cantidadInicial={lote.cantidadInicial}
+                  cantidadActual={lote.cantidadActual}
+                  loteId={lote.id!}
+                  tipoLote="PONEDORA"
+                  size="medium"
+                  fechaInicio={lote.fechaInicio}
+                  registrosHuevos={registrosHuevosParaBadge}
+                  gastos={gastosParaBadge}
+                />
+              </View>
+              <Text style={styles.cpuDescription}>
+                CPU: Costo total acumulado dividido entre la cantidad inicial de gallinas{'\n'}
+                CPH: Costo de producción por huevo (toca el badge para ver historial diario)
+              </Text>
+            </View>
+          ) : (
+            <View style={styles.noDataContainer}>
+              <Text style={styles.noDataText}>No se pudo calcular el costo unitario</Text>
+            </View>
+          )}
+        </View>
+      </Card>
+
       {/* Costos de producción de huevos */}
       <CostoProduccionHuevos
         loteId={lote.id}
@@ -538,12 +672,17 @@ function TabGeneral({
               </Text>
               <Text style={styles.statLabel}>Ingresos Totales</Text>
             </View>
-            <View style={styles.statItem}>
+            <TouchableOpacity
+              style={styles.statItem}
+              onPress={() => router.push(`/(tabs)/ponedoras/historial-gastos?loteId=${lote.id}&tipoLote=${TipoAve.PONEDORA}`)}
+              activeOpacity={0.7}
+            >
               <Text style={styles.statValue}>
                 {estadisticas.gastoTotal ? `RD$${estadisticas.gastoTotal.toFixed(2)}` : 'RD$0.00'}
               </Text>
               <Text style={styles.statLabel}>Gastos Totales</Text>
-            </View>
+              <Text style={styles.statHint}>Toca para ver historial</Text>
+            </TouchableOpacity>
             <View style={styles.statItem}>
               <Text style={styles.statValue}>
                 {estadisticas.ventasHuevos || 0}
@@ -667,11 +806,16 @@ function TabGastos({ lote, gastos, onRegistrarGasto }: { lote: LotePonedora; gas
       </View>
 
       {/* Resumen Total de Gastos */}
-      <Card style={styles.resumenTotalCard}>
-        <View style={styles.resumenTotalHeader}>
-          <Ionicons name="calculator" size={24} color={colors.ponedoras} />
-          <Text style={styles.resumenTotalTitle}>Resumen Total de Gastos</Text>
-        </View>
+      <TouchableOpacity
+        onPress={() => router.push(`/(tabs)/ponedoras/historial-gastos?loteId=${lote.id}&tipoLote=${TipoAve.PONEDORA}`)}
+        activeOpacity={0.7}
+      >
+        <Card style={styles.resumenTotalCard}>
+          <View style={styles.resumenTotalHeader}>
+            <Ionicons name="calculator" size={24} color={colors.ponedoras} />
+            <Text style={styles.resumenTotalTitle}>Resumen Total de Gastos</Text>
+            <Ionicons name="chevron-forward" size={20} color={colors.ponedoras} />
+          </View>
         
         <View style={styles.resumenTotalContent}>
           {costoInicialLote > 0 && (
@@ -698,6 +842,7 @@ function TabGastos({ lote, gastos, onRegistrarGasto }: { lote: LotePonedora; gas
           </View>
         </View>
       </Card>
+      </TouchableOpacity>
 
       {/* Detalle del Costo Inicial */}
       {costoInicialLote > 0 && (
@@ -758,6 +903,178 @@ function TabGastos({ lote, gastos, onRegistrarGasto }: { lote: LotePonedora; gas
               </Card>
             ))}
           </View>
+        </View>
+      )}
+    </View>
+  );
+}
+
+// Componente Tab Ventas
+function TabVentas({ 
+  lote 
+}: { 
+  lote: LotePonedora; 
+}) {
+  const [ventas, setVentas] = useState<any[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    const cargarVentas = async () => {
+      if (!lote.id) return;
+      
+      try {
+        setIsLoading(true);
+        const ventasData = await getVentasPorLote(lote.id!, TipoAve.PONEDORA);
+        setVentas(ventasData);
+      } catch (error) {
+        console.error('Error al cargar ventas:', error);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    cargarVentas();
+  }, [lote.id]);
+
+  // Calcular estadísticas
+  const estadisticas = useMemo(() => {
+    const ventasConfirmadas = ventas.filter(v => v.estado === 'CONFIRMADA');
+    const montoTotal = ventasConfirmadas.reduce((sum, v) => sum + v.total, 0);
+    const cantidadHuevosVendidos = ventasConfirmadas.reduce((sum, venta) => {
+      return sum + venta.items.reduce((itemSum: number, item: any) => {
+        if (item.producto.tipo === 'HUEVOS') {
+          const productoHuevos = item.producto;
+          if (productoHuevos.unidadVenta === 'CAJAS') {
+            return itemSum + (item.cantidad * (productoHuevos.cantidadPorCaja || 30));
+          }
+          return itemSum + item.cantidad;
+        }
+        return itemSum;
+      }, 0);
+    }, 0);
+
+    return {
+      totalVentas: ventas.length,
+      ventasConfirmadas: ventasConfirmadas.length,
+      montoTotal,
+      cantidadHuevosVendidos
+    };
+  }, [ventas]);
+
+  if (isLoading) {
+    return (
+      <View style={styles.tabContent}>
+        <Text style={styles.loadingText}>Cargando ventas...</Text>
+      </View>
+    );
+  }
+
+  return (
+    <View style={styles.tabContent}>
+      <View style={styles.tabHeader}>
+        <Text style={styles.tabTitle}>Ventas del Lote</Text>
+        <Button
+          title="Nueva Venta"
+          onPress={() => router.push('/(tabs)/ventas/nueva')}
+          size="small"
+        />
+      </View>
+
+      {/* Estadísticas */}
+      <Card style={styles.ventasStatsCard}>
+        <Text style={styles.cardTitle}>Resumen de Ventas</Text>
+        <View style={styles.ventasStatsGrid}>
+          <View style={styles.ventasStatItem}>
+            <Text style={styles.ventasStatValue}>{estadisticas.totalVentas}</Text>
+            <Text style={styles.ventasStatLabel}>Total Ventas</Text>
+          </View>
+          <View style={styles.ventasStatItem}>
+            <Text style={styles.ventasStatValue}>{estadisticas.ventasConfirmadas}</Text>
+            <Text style={styles.ventasStatLabel}>Confirmadas</Text>
+          </View>
+          <View style={styles.ventasStatItem}>
+            <Text style={[styles.ventasStatValue, { color: colors.success }]}>
+              RD${estadisticas.montoTotal.toFixed(2)}
+            </Text>
+            <Text style={styles.ventasStatLabel}>Monto Total</Text>
+          </View>
+          <View style={styles.ventasStatItem}>
+            <Text style={[styles.ventasStatValue, { color: colors.ponedoras }]}>
+              {estadisticas.cantidadHuevosVendidos.toLocaleString()}
+            </Text>
+            <Text style={styles.ventasStatLabel}>Huevos Vendidos</Text>
+          </View>
+        </View>
+      </Card>
+
+      {ventas.length === 0 ? (
+        <Card style={styles.emptyCard}>
+          <Ionicons name="cash-outline" size={48} color={colors.lightGray} />
+          <Text style={styles.emptyTitle}>No hay ventas registradas</Text>
+          <Text style={styles.emptyText}>
+            Las ventas de este lote se mostrarán aquí cuando se registren
+          </Text>
+        </Card>
+      ) : (
+        <View style={styles.ventasList}>
+          {ventas.map((venta) => (
+            <Card key={venta.id} style={styles.ventaCard}>
+              <View style={styles.ventaHeader}>
+                <View style={styles.ventaInfo}>
+                  <Text style={styles.ventaNumero}>{venta.numero}</Text>
+                  <Text style={styles.ventaFecha}>
+                    {formatDate(venta.fecha)}
+                  </Text>
+                </View>
+                <View style={[
+                  styles.estadoBadge,
+                  venta.estado === 'CONFIRMADA' && styles.estadoConfirmada,
+                  venta.estado === 'CANCELADA' && styles.estadoCancelada,
+                ]}>
+                  <Text style={[
+                    styles.estadoText,
+                    venta.estado === 'CONFIRMADA' && styles.estadoTextConfirmada,
+                    venta.estado === 'CANCELADA' && styles.estadoTextCancelada,
+                  ]}>
+                    {venta.estado}
+                  </Text>
+                </View>
+              </View>
+              
+              <Text style={styles.clienteNombre}>{venta.cliente.nombre}</Text>
+              
+              <View style={styles.ventaDetalle}>
+                <Text style={styles.itemsCount}>
+                  {venta.items.length} producto{venta.items.length !== 1 ? 's' : ''}
+                </Text>
+                <Text style={styles.ventaTotal}>RD${venta.total.toFixed(2)}</Text>
+              </View>
+
+              {/* Items de la venta */}
+              <View style={styles.ventaItemsContainer}>
+                {venta.items.map((item: any, index: number) => (
+                  <View key={index} style={styles.ventaItemRow}>
+                    <View style={styles.ventaItemInfo}>
+                      <Ionicons 
+                        name={item.producto.tipo === 'HUEVOS' ? 'egg' : 'restaurant'} 
+                        size={16} 
+                        color={item.producto.tipo === 'HUEVOS' ? colors.ponedoras : colors.primary} 
+                      />
+                      <Text style={styles.ventaItemNombre}>{item.producto.nombre}</Text>
+                    </View>
+                    <View style={styles.ventaItemCantidad}>
+                      <Text style={styles.ventaItemCantidadText}>
+                        {item.cantidad} {item.producto.unidadMedida}
+                      </Text>
+                      <Text style={styles.ventaItemPrecio}>
+                        RD${item.total.toFixed(2)}
+                      </Text>
+                    </View>
+                  </View>
+                ))}
+              </View>
+            </Card>
+          ))}
         </View>
       )}
     </View>
@@ -841,7 +1158,67 @@ function TabMortalidad({
 }
 
 // Componente Tab Costos de Producción
-function TabCostosProduccion({ lote }: { lote: LotePonedora }) {
+function TabCostosProduccion({ 
+  lote, 
+  gastosLote, 
+  registrosHuevos 
+}: { 
+  lote: LotePonedora; 
+  gastosLote: any[];
+  registrosHuevos: any[];
+}) {
+  const [fechaBusqueda, setFechaBusqueda] = useState<string>('');
+  
+  // Calcular CPH para la fecha seleccionada
+  const calcularCPHPorFecha = (fecha: string) => {
+    if (!fecha) return null;
+    
+    const fechaBusquedaDate = new Date(fecha);
+    fechaBusquedaDate.setHours(0, 0, 0, 0);
+    const fechaFin = new Date(fechaBusquedaDate);
+    fechaFin.setHours(23, 59, 59, 999);
+    
+    // Obtener gastos del día
+    const gastosDelDia = gastosLote.filter(gasto => {
+      const gastoFecha = gasto.fecha instanceof Date ? gasto.fecha : new Date(gasto.fecha);
+      return gastoFecha >= fechaBusquedaDate && gastoFecha <= fechaFin;
+    });
+    
+    const totalGastosDia = gastosDelDia.reduce((sum, gasto) => sum + gasto.total, 0);
+    
+    // Obtener producción del día
+    const registroDelDia = registrosHuevos.find(registro => {
+      const registroFecha = registro.fecha instanceof Date ? registro.fecha : new Date(registro.fecha);
+      return registroFecha >= fechaBusquedaDate && registroFecha <= fechaFin;
+    });
+    
+    const huevosDelDia = registroDelDia?.cantidad || 0;
+    
+    // Calcular CPH
+    const cphDia = huevosDelDia > 0 ? totalGastosDia / huevosDelDia : 0;
+    
+    return {
+      fecha: fechaBusquedaDate,
+      gastosDelDia,
+      totalGastosDia,
+      huevosDelDia,
+      cphDia,
+      tieneDatos: gastosDelDia.length > 0 || huevosDelDia > 0
+    };
+  };
+  
+  const resultadoFecha = fechaBusqueda ? calcularCPHPorFecha(fechaBusqueda) : null;
+  
+  // Formatear precio
+  const formatPrice = (price: number) => {
+    return new Intl.NumberFormat('es-DO', {
+      style: 'currency',
+      currency: 'DOP',
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    }).format(price);
+  };
+  
   return (
     <View style={styles.tabContent}>
       <View style={styles.tabHeader}>
@@ -852,6 +1229,79 @@ function TabCostosProduccion({ lote }: { lote: LotePonedora }) {
           size="small"
         />
       </View>
+
+      {/* Buscador de fecha */}
+      <Card style={styles.buscadorFechaCard}>
+        <View style={styles.buscadorFechaHeader}>
+          <Ionicons name="search-outline" size={24} color={colors.ponedoras} />
+          <Text style={styles.buscadorFechaTitle}>Buscar Costo por Fecha</Text>
+        </View>
+        <DatePicker
+          label="Selecciona una fecha"
+          value={fechaBusqueda}
+          onDateChange={setFechaBusqueda}
+          placeholder="Buscar costo de una fecha específica"
+          maximumDate={new Date()}
+          minimumDate={lote.fechaInicio}
+        />
+        
+        {resultadoFecha && (
+          <View style={styles.resultadoFechaContainer}>
+            {resultadoFecha.tieneDatos ? (
+              <>
+                <View style={styles.resultadoFechaHeader}>
+                  <Ionicons name="calendar" size={20} color={colors.ponedoras} />
+                  <Text style={styles.resultadoFechaTitle}>
+                    Resultado para {formatDate(resultadoFecha.fecha)}
+                  </Text>
+                </View>
+                
+                <View style={styles.resultadoFechaGrid}>
+                  <View style={styles.resultadoFechaItem}>
+                    <Text style={styles.resultadoFechaLabel}>Huevos Producidos</Text>
+                    <Text style={styles.resultadoFechaValue}>
+                      {resultadoFecha.huevosDelDia.toLocaleString()}
+                    </Text>
+                  </View>
+                  
+                  <View style={styles.resultadoFechaItem}>
+                    <Text style={styles.resultadoFechaLabel}>Gastos del Día</Text>
+                    <Text style={styles.resultadoFechaValue}>
+                      {formatPrice(resultadoFecha.totalGastosDia)}
+                    </Text>
+                  </View>
+                  
+                  <View style={[styles.resultadoFechaItem, styles.resultadoFechaItemCPH]}>
+                    <Text style={styles.resultadoFechaLabelCPH}>Costo por Huevo (CPH)</Text>
+                    <Text style={styles.resultadoFechaValueCPH}>
+                      {formatPrice(resultadoFecha.cphDia)}
+                    </Text>
+                  </View>
+                </View>
+                
+                {resultadoFecha.gastosDelDia.length > 0 && (
+                  <View style={styles.gastosDetalleContainer}>
+                    <Text style={styles.gastosDetalleTitle}>Detalle de Gastos:</Text>
+                    {resultadoFecha.gastosDelDia.map((gasto, index) => (
+                      <View key={index} style={styles.gastoDetalleRow}>
+                        <Text style={styles.gastoDetalleNombre}>{gasto.articuloNombre}</Text>
+                        <Text style={styles.gastoDetalleMonto}>{formatPrice(gasto.total)}</Text>
+                      </View>
+                    ))}
+                  </View>
+                )}
+              </>
+            ) : (
+              <View style={styles.sinDatosContainer}>
+                <Ionicons name="information-circle-outline" size={48} color={colors.textMedium} />
+                <Text style={styles.sinDatosText}>
+                  No hay registros de producción o gastos para esta fecha
+                </Text>
+              </View>
+            )}
+          </View>
+        )}
+      </Card>
 
       {/* Componente principal de costos detallado */}
       <CostoProduccionHuevos
@@ -917,58 +1367,380 @@ function TabCostosProduccion({ lote }: { lote: LotePonedora }) {
 }
 
 // Componente Tab Dashboard
-function TabDashboard() {
+function TabDashboard({ 
+  lote, 
+  gastosLote, 
+  registrosHuevos, 
+  registrosMortalidad,
+  estadisticas 
+}: { 
+  lote: LotePonedora; 
+  gastosLote: any[];
+  registrosHuevos: any[];
+  registrosMortalidad: any[];
+  estadisticas: any;
+}) {
+  // Calcular métricas del lote
+  const huevosTotales = registrosHuevos.reduce((total, registro) => total + registro.cantidad, 0);
+  const muertesTotales = registrosMortalidad.reduce((total, registro) => total + registro.cantidad, 0);
+  const diasActivo = Math.floor((new Date().getTime() - new Date(lote.fechaInicio).getTime()) / (1000 * 60 * 60 * 24));
+  
+  // Calcular costo total
+  const costoInicial = lote.costo || 0;
+  const gastosAdicionales = gastosLote
+    .filter(gasto => !(gasto.descripcion?.toLowerCase().includes('costo inicial') || 
+                      gasto.articuloNombre?.toLowerCase().includes('costo inicial')))
+    .reduce((total, gasto) => total + gasto.total, 0);
+  const costoTotal = costoInicial + gastosAdicionales;
+  
+  // Calcular CPH promedio
+  const cphPromedio = huevosTotales > 0 ? costoTotal / huevosTotales : 0;
+  
+  // Calcular producción promedio diaria
+  const produccionPromedioDiaria = diasActivo > 0 ? huevosTotales / diasActivo : 0;
+  
+  // Calcular tasa de postura
+  const tasaPostura = lote.cantidadActual > 0 && diasActivo > 0 
+    ? (huevosTotales / (lote.cantidadActual * diasActivo)) * 100 
+    : 0;
+  
+  // Calcular tasa de mortalidad
+  const tasaMortalidad = lote.cantidadInicial > 0 
+    ? (muertesTotales / lote.cantidadInicial) * 100 
+    : 0;
+  
+  // Calcular tendencias (últimos 7 días vs anteriores)
+  const ultimos7Dias = registrosHuevos
+    .filter(r => {
+      const fechaRegistro = r.fecha instanceof Date ? r.fecha : new Date(r.fecha);
+      const diasAtras = Math.floor((new Date().getTime() - fechaRegistro.getTime()) / (1000 * 60 * 60 * 24));
+      return diasAtras <= 7;
+    })
+    .reduce((total, registro) => total + registro.cantidad, 0);
+  
+  const diasAnteriores = Math.max(1, diasActivo - 7);
+  const produccionAnterior = huevosTotales - ultimos7Dias;
+  const promedioAnterior = diasAnteriores > 0 ? produccionAnterior / diasAnteriores : 0;
+  const promedioUltimos7 = 7 > 0 ? ultimos7Dias / 7 : 0;
+  
+  const tendenciaProduccion = promedioAnterior > 0 
+    ? ((promedioUltimos7 - promedioAnterior) / promedioAnterior) * 100 
+    : 0;
+  
+  // Calcular CPH de últimos 7 días
+  const gastosUltimos7Dias = gastosLote
+    .filter(gasto => {
+      const fechaGasto = gasto.fecha instanceof Date ? gasto.fecha : new Date(gasto.fecha);
+      const diasAtras = Math.floor((new Date().getTime() - fechaGasto.getTime()) / (1000 * 60 * 60 * 24));
+      return diasAtras <= 7;
+    })
+    .reduce((total, gasto) => total + gasto.total, 0);
+  
+  const cphUltimos7Dias = ultimos7Dias > 0 ? gastosUltimos7Dias / ultimos7Dias : 0;
+  const tendenciaCPH = cphPromedio > 0 
+    ? ((cphUltimos7Dias - cphPromedio) / cphPromedio) * 100 
+    : 0;
+  
+  // Generar recomendaciones
+  const recomendaciones: string[] = [];
+  
+  if (tasaPostura < 60) {
+    recomendaciones.push('⚠️ La tasa de postura está por debajo del 60%. Revisa las condiciones del lote.');
+  }
+  
+  if (tasaMortalidad > 5) {
+    recomendaciones.push('⚠️ La tasa de mortalidad está por encima del 5%. Revisa la salud del lote.');
+  }
+  
+  if (tendenciaCPH > 10) {
+    recomendaciones.push('📈 El CPH ha aumentado más del 10% en los últimos 7 días. Revisa los gastos recientes.');
+  }
+  
+  if (tendenciaProduccion < -10) {
+    recomendaciones.push('📉 La producción ha disminuido más del 10% en los últimos 7 días. Revisa las condiciones.');
+  }
+  
+  if (cphPromedio > 5) {
+    recomendaciones.push('💰 El costo por huevo está por encima de RD$5.00. Considera optimizar los gastos.');
+  }
+  
+  if (recomendaciones.length === 0) {
+    recomendaciones.push('✅ El lote está funcionando dentro de parámetros normales.');
+  }
+  
+  // Formatear precio
+  const formatPrice = (price: number) => {
+    return new Intl.NumberFormat('es-DO', {
+      style: 'currency',
+      currency: 'DOP',
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    }).format(price);
+  };
+  
+  // Obtener últimos 30 días de producción para gráfico
+  const ultimos30Dias = registrosHuevos
+    .filter(r => {
+      const fechaRegistro = r.fecha instanceof Date ? r.fecha : new Date(r.fecha);
+      const diasAtras = Math.floor((new Date().getTime() - fechaRegistro.getTime()) / (1000 * 60 * 60 * 24));
+      return diasAtras <= 30;
+    })
+    .sort((a, b) => {
+      const fechaA = a.fecha instanceof Date ? a.fecha : new Date(a.fecha);
+      const fechaB = b.fecha instanceof Date ? b.fecha : new Date(b.fecha);
+      return fechaA.getTime() - fechaB.getTime();
+    });
+  
+  // Calcular mejor y peor día
+  const mejorDia = ultimos30Dias.length > 0 
+    ? ultimos30Dias.reduce((mejor, actual) => actual.cantidad > mejor.cantidad ? actual : mejor)
+    : null;
+  
+  const peorDia = ultimos30Dias.length > 0 
+    ? ultimos30Dias.reduce((peor, actual) => actual.cantidad < peor.cantidad ? actual : peor)
+    : null;
+  
   return (
-    <View style={styles.tabContent}>
+    <ScrollView style={styles.tabContent} showsVerticalScrollIndicator={false}>
       <View style={styles.tabHeader}>
-        <Text style={styles.tabTitle}>Dashboard Comparativo</Text>
+        <Text style={styles.tabTitle}>Dashboard Detallado</Text>
         <Button
-          title="Ver Dashboard Completo"
+          title="Comparar Lotes"
           onPress={() => router.push('/(tabs)/ponedoras/dashboard-comparativo')}
           size="small"
+          variant="outline"
         />
       </View>
 
-      <Card style={styles.dashboardCard}>
-        <View style={styles.dashboardHeader}>
-          <Ionicons name="analytics-outline" size={32} color={colors.primary} />
-          <Text style={styles.dashboardTitle}>Análisis Comparativo</Text>
+      {/* Métricas Principales */}
+      <Card style={styles.metricasCard}>
+        <Text style={styles.cardTitle}>Métricas Principales</Text>
+        <View style={styles.metricasGrid}>
+          <TouchableOpacity 
+            style={styles.metricaItem}
+            onPress={() => {
+              if (!lote.id) {
+                Alert.alert('Error', 'No se pudo identificar el lote');
+                return;
+              }
+              console.log('Navegando a registros-huevos con loteId:', lote.id);
+              router.push({
+                pathname: '/(tabs)/ponedoras/registros-huevos',
+                params: { loteId: lote.id }
+              } as any);
+            }}
+            activeOpacity={0.7}
+          >
+            <Ionicons name="egg" size={24} color={colors.ponedoras} />
+            <Text style={styles.metricaValue}>{huevosTotales.toLocaleString()}</Text>
+            <Text style={styles.metricaLabel}>Huevos Totales</Text>
+            <Text style={styles.metricaHint}>Toca para ver registros</Text>
+          </TouchableOpacity>
+          <View style={styles.metricaItem}>
+            <Ionicons name="trending-up" size={24} color={colors.success} />
+            <Text style={styles.metricaValue}>{produccionPromedioDiaria.toFixed(1)}</Text>
+            <Text style={styles.metricaLabel}>Promedio Diario</Text>
+          </View>
+          <View style={styles.metricaItem}>
+            <Ionicons name="percent" size={24} color={colors.primary} />
+            <Text style={styles.metricaValue}>{tasaPostura.toFixed(1)}%</Text>
+            <Text style={styles.metricaLabel}>Tasa Postura</Text>
+          </View>
+          <View style={styles.metricaItem}>
+            <Ionicons name="cash" size={24} color={colors.warning} />
+            <Text style={styles.metricaValue}>{formatPrice(cphPromedio)}</Text>
+            <Text style={styles.metricaLabel}>CPH Promedio</Text>
+          </View>
         </View>
-        <Text style={styles.dashboardDescription}>
-          Compara el rendimiento de este lote con otros lotes de ponedoras para obtener insights sobre:
-        </Text>
-        <View style={styles.dashboardFeatures}>
-          <View style={styles.dashboardFeature}>
-            <Ionicons name="egg-outline" size={20} color={colors.primary} />
-            <Text style={styles.dashboardFeatureText}>Producción de huevos</Text>
+      </Card>
+
+      {/* Análisis de Tendencias */}
+      <Card style={styles.tendenciasCard}>
+        <Text style={styles.cardTitle}>Análisis de Tendencias (Últimos 7 días)</Text>
+        <View style={styles.tendenciasGrid}>
+          <View style={styles.tendenciaItem}>
+            <View style={styles.tendenciaHeader}>
+              <Ionicons 
+                name={tendenciaProduccion >= 0 ? "trending-up" : "trending-down"} 
+                size={20} 
+                color={tendenciaProduccion >= 0 ? colors.success : colors.danger} 
+              />
+              <Text style={styles.tendenciaLabel}>Producción</Text>
+            </View>
+            <Text style={[
+              styles.tendenciaValue,
+              { color: tendenciaProduccion >= 0 ? colors.success : colors.danger }
+            ]}>
+              {tendenciaProduccion >= 0 ? '+' : ''}{tendenciaProduccion.toFixed(1)}%
+            </Text>
+            <Text style={styles.tendenciaSubtext}>
+              {promedioUltimos7.toFixed(0)} huevos/día vs {promedioAnterior.toFixed(0)} huevos/día
+            </Text>
           </View>
-          <View style={styles.dashboardFeature}>
-            <Ionicons name="trending-up-outline" size={20} color={colors.success} />
-            <Text style={styles.dashboardFeatureText}>Tasa de postura</Text>
+          
+          <View style={styles.tendenciaItem}>
+            <View style={styles.tendenciaHeader}>
+              <Ionicons 
+                name={tendenciaCPH <= 0 ? "trending-down" : "trending-up"} 
+                size={20} 
+                color={tendenciaCPH <= 0 ? colors.success : colors.danger} 
+              />
+              <Text style={styles.tendenciaLabel}>Costo por Huevo</Text>
+            </View>
+            <Text style={[
+              styles.tendenciaValue,
+              { color: tendenciaCPH <= 0 ? colors.success : colors.danger }
+            ]}>
+              {tendenciaCPH >= 0 ? '+' : ''}{tendenciaCPH.toFixed(1)}%
+            </Text>
+            <Text style={styles.tendenciaSubtext}>
+              {formatPrice(cphUltimos7Dias)} vs {formatPrice(cphPromedio)}
+            </Text>
           </View>
-          <View style={styles.dashboardFeature}>
-            <Ionicons name="warning-outline" size={20} color={colors.warning} />
-            <Text style={styles.dashboardFeatureText}>Mortalidad comparativa</Text>
+        </View>
+      </Card>
+
+      {/* Mejor y Peor Día */}
+      {(mejorDia || peorDia) && (
+        <Card style={styles.diasCard}>
+          <Text style={styles.cardTitle}>Récords de Producción</Text>
+          <View style={styles.diasGrid}>
+            {mejorDia && (
+              <View style={[styles.diaItem, styles.mejorDia]}>
+                <Ionicons name="trophy" size={24} color={colors.success} />
+                <Text style={styles.diaLabel}>Mejor Día</Text>
+                <Text style={styles.diaFecha}>{formatDate(mejorDia.fecha)}</Text>
+                <Text style={styles.diaCantidad}>{mejorDia.cantidad} huevos</Text>
+              </View>
+            )}
+            {peorDia && (
+              <View style={[styles.diaItem, styles.peorDia]}>
+                <Ionicons name="alert-circle" size={24} color={colors.warning} />
+                <Text style={styles.diaLabel}>Peor Día</Text>
+                <Text style={styles.diaFecha}>{formatDate(peorDia.fecha)}</Text>
+                <Text style={styles.diaCantidad}>{peorDia.cantidad} huevos</Text>
+              </View>
+            )}
           </View>
-          <View style={styles.dashboardFeature}>
-            <Ionicons name="cash-outline" size={20} color={colors.engorde} />
-            <Text style={styles.dashboardFeatureText}>Rentabilidad</Text>
+        </Card>
+      )}
+
+      {/* Estadísticas de Costos */}
+      <Card style={styles.costosCard}>
+        <Text style={styles.cardTitle}>Análisis de Costos</Text>
+        <View style={styles.costosGrid}>
+          <View style={styles.costoItem}>
+            <Text style={styles.costoLabel}>Costo Total</Text>
+            <Text style={styles.costoValue}>{formatPrice(costoTotal)}</Text>
+          </View>
+          <View style={styles.costoItem}>
+            <Text style={styles.costoLabel}>Costo Inicial</Text>
+            <Text style={styles.costoValue}>{formatPrice(costoInicial)}</Text>
+          </View>
+          <View style={styles.costoItem}>
+            <Text style={styles.costoLabel}>Gastos Adicionales</Text>
+            <Text style={styles.costoValue}>{formatPrice(gastosAdicionales)}</Text>
+          </View>
+          <View style={styles.costoItem}>
+            <Text style={styles.costoLabel}>CPH Promedio</Text>
+            <Text style={[styles.costoValue, { color: colors.ponedoras }]}>
+              {formatPrice(cphPromedio)}
+            </Text>
+          </View>
+        </View>
+      </Card>
+
+      {/* Estadísticas de Mortalidad */}
+      <Card style={styles.mortalidadCard}>
+        <Text style={styles.cardTitle}>Análisis de Mortalidad</Text>
+        <View style={styles.mortalidadGrid}>
+          <View style={styles.mortalidadItem}>
+            <Text style={styles.mortalidadLabel}>Muertes Totales</Text>
+            <Text style={styles.mortalidadValue}>{muertesTotales}</Text>
+          </View>
+          <View style={styles.mortalidadItem}>
+            <Text style={styles.mortalidadLabel}>Tasa de Mortalidad</Text>
+            <Text style={[
+              styles.mortalidadValue,
+              { color: tasaMortalidad > 5 ? colors.danger : colors.textDark }
+            ]}>
+              {tasaMortalidad.toFixed(2)}%
+            </Text>
+          </View>
+          <View style={styles.mortalidadItem}>
+            <Text style={styles.mortalidadLabel}>Gallinas Actuales</Text>
+            <Text style={styles.mortalidadValue}>{lote.cantidadActual}</Text>
+          </View>
+          <View style={styles.mortalidadItem}>
+            <Text style={styles.mortalidadLabel}>Gallinas Iniciales</Text>
+            <Text style={styles.mortalidadValue}>{lote.cantidadInicial}</Text>
+          </View>
+        </View>
+      </Card>
+
+      {/* Recomendaciones */}
+      <Card style={styles.recomendacionesCard}>
+        <View style={styles.recomendacionesHeader}>
+          <Ionicons name="bulb-outline" size={24} color={colors.warning} />
+          <Text style={styles.cardTitle}>Recomendaciones</Text>
+        </View>
+        <View style={styles.recomendacionesList}>
+          {recomendaciones.map((recomendacion, index) => (
+            <View key={index} style={styles.recomendacionItem}>
+              <Text style={styles.recomendacionText}>{recomendacion}</Text>
+            </View>
+          ))}
+        </View>
+      </Card>
+
+      {/* Resumen de Últimos 30 Días */}
+      {ultimos30Dias.length > 0 && (
+        <Card style={styles.historialCard}>
+          <Text style={styles.cardTitle}>Producción Últimos 30 Días</Text>
+          <View style={styles.historialList}>
+            {ultimos30Dias.slice(-10).reverse().map((registro, index) => {
+              const fechaRegistro = registro.fecha instanceof Date ? registro.fecha : new Date(registro.fecha);
+              const diasAtras = Math.floor((new Date().getTime() - fechaRegistro.getTime()) / (1000 * 60 * 60 * 24));
+              
+              return (
+                <View key={index} style={styles.historialItem}>
+                  <View style={styles.historialFecha}>
+                    <Text style={styles.historialFechaText}>
+                      {diasAtras === 0 ? 'Hoy' : diasAtras === 1 ? 'Ayer' : `Hace ${diasAtras} días`}
+                    </Text>
+                    <Text style={styles.historialFechaCompleta}>{formatDate(fechaRegistro)}</Text>
+                  </View>
+                  <Text style={styles.historialCantidad}>{registro.cantidad} huevos</Text>
+                </View>
+              );
+            })}
+          </View>
+          {ultimos30Dias.length > 10 && (
+            <Text style={styles.historialNota}>
+              Mostrando últimos 10 registros de {ultimos30Dias.length} días
+            </Text>
+          )}
+        </Card>
+      )}
+
+      {/* Botón para dashboard comparativo */}
+      <Card style={styles.comparativoCard}>
+        <View style={styles.comparativoHeader}>
+          <Ionicons name="analytics-outline" size={32} color={colors.primary} />
+          <View style={styles.comparativoText}>
+            <Text style={styles.comparativoTitle}>Comparar con Otros Lotes</Text>
+            <Text style={styles.comparativoDescription}>
+              Analiza el rendimiento de este lote comparándolo con otros lotes de ponedoras
+            </Text>
           </View>
         </View>
         <Button
           title="Abrir Dashboard Comparativo"
           onPress={() => router.push('/(tabs)/ponedoras/dashboard-comparativo')}
-          style={styles.dashboardButton}
+          style={styles.comparativoButton}
         />
       </Card>
-
-      <Card style={styles.quickStatsCard}>
-        <Text style={styles.cardTitle}>Estadísticas Rápidas</Text>
-        <Text style={styles.quickStatsText}>
-          💡 Próximamente: Métricas en tiempo real, comparaciones automáticas y recomendaciones basadas en IA.
-        </Text>
-      </Card>
-    </View>
+    </ScrollView>
   );
 }
 
@@ -1140,6 +1912,13 @@ const styles = StyleSheet.create({
     color: colors.textMedium,
     marginTop: 4,
   },
+  summaryHint: {
+    fontSize: 10,
+    color: colors.ponedoras,
+    textAlign: 'center',
+    marginTop: 2,
+    fontStyle: 'italic',
+  },
   infoCard: {
     marginBottom: 16,
   },
@@ -1184,6 +1963,61 @@ const styles = StyleSheet.create({
   statsCard: {
     marginBottom: 16,
   },
+  cpuCard: {
+    marginBottom: 16,
+  },
+  cpuHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  costosContainer: {
+    padding: 8,
+  },
+  costoRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  costoItem: {
+    flex: 1,
+  },
+  costoLabel: {
+    fontSize: 13,
+    color: colors.textMedium,
+    marginBottom: 4,
+  },
+  cpuContent: {
+    alignItems: 'center',
+    paddingVertical: 8,
+  },
+  cpuValue: {
+    fontSize: 32,
+    fontWeight: 'bold',
+    color: moduleColors.badgeText,
+    marginBottom: 4,
+  },
+  cpuLabel: {
+    fontSize: 16,
+    color: colors.textMedium,
+    marginBottom: 8,
+  },
+  cpuDescription: {
+    fontSize: 12,
+    color: colors.textMedium,
+    textAlign: 'center',
+    fontStyle: 'italic',
+  },
+  noDataContainer: {
+    alignItems: 'center',
+    paddingVertical: 20,
+  },
+  noDataText: {
+    fontSize: 14,
+    color: colors.textMedium,
+    textAlign: 'center',
+  },
   statsGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -1204,6 +2038,13 @@ const styles = StyleSheet.create({
     color: colors.textMedium,
     marginTop: 4,
     textAlign: 'center',
+  },
+  statHint: {
+    fontSize: 10,
+    color: colors.ponedoras,
+    textAlign: 'center',
+    marginTop: 2,
+    fontStyle: 'italic',
   },
   actionsCard: {
     marginBottom: 16,
@@ -1633,5 +2474,463 @@ const styles = StyleSheet.create({
   },
   dashboardAccessButton: {
     marginTop: 4,
+  },
+  // Estilos para buscador de fecha
+  buscadorFechaCard: {
+    marginBottom: 16,
+  },
+  buscadorFechaHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 16,
+    gap: 8,
+  },
+  buscadorFechaTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: colors.textDark,
+  },
+  resultadoFechaContainer: {
+    marginTop: 16,
+    paddingTop: 16,
+    borderTopWidth: 1,
+    borderTopColor: colors.veryLightGray,
+  },
+  resultadoFechaHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 16,
+    gap: 8,
+  },
+  resultadoFechaTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: colors.textDark,
+  },
+  resultadoFechaGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
+  resultadoFechaItem: {
+    flex: 1,
+    minWidth: '48%',
+    backgroundColor: colors.background,
+    padding: 12,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: colors.veryLightGray,
+  },
+  resultadoFechaItemCPH: {
+    width: '100%',
+    backgroundColor: colors.ponedoras + '10',
+    borderColor: colors.ponedoras + '40',
+    borderWidth: 2,
+  },
+  resultadoFechaLabel: {
+    fontSize: 12,
+    color: colors.textMedium,
+    marginBottom: 4,
+  },
+  resultadoFechaLabelCPH: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: colors.ponedoras,
+    marginBottom: 4,
+  },
+  resultadoFechaValue: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: colors.textDark,
+  },
+  resultadoFechaValueCPH: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    color: colors.ponedoras,
+  },
+  gastosDetalleContainer: {
+    marginTop: 16,
+    paddingTop: 16,
+    borderTopWidth: 1,
+    borderTopColor: colors.veryLightGray,
+  },
+  gastosDetalleTitle: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: colors.textDark,
+    marginBottom: 8,
+  },
+  gastoDetalleRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.veryLightGray + '50',
+  },
+  gastoDetalleNombre: {
+    fontSize: 14,
+    color: colors.textDark,
+    flex: 1,
+  },
+  gastoDetalleMonto: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: colors.danger,
+  },
+  sinDatosContainer: {
+    alignItems: 'center',
+    paddingVertical: 24,
+  },
+  sinDatosText: {
+    fontSize: 14,
+    color: colors.textMedium,
+    textAlign: 'center',
+    marginTop: 8,
+  },
+  // Estilos para dashboard detallado
+  metricasCard: {
+    marginBottom: 16,
+  },
+  metricasGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
+  metricaItem: {
+    width: '48%',
+    backgroundColor: colors.background,
+    padding: 16,
+    borderRadius: 12,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: colors.veryLightGray,
+  },
+  metricaValue: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    color: colors.textDark,
+    marginTop: 8,
+  },
+  metricaLabel: {
+    fontSize: 12,
+    color: colors.textMedium,
+    marginTop: 4,
+    textAlign: 'center',
+  },
+  metricaHint: {
+    fontSize: 10,
+    color: colors.ponedoras,
+    marginTop: 4,
+    fontStyle: 'italic',
+  },
+  tendenciasCard: {
+    marginBottom: 16,
+  },
+  tendenciasGrid: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  tendenciaItem: {
+    flex: 1,
+    backgroundColor: colors.background,
+    padding: 16,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: colors.veryLightGray,
+  },
+  tendenciaHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 8,
+  },
+  tendenciaLabel: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: colors.textDark,
+  },
+  tendenciaValue: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    marginBottom: 4,
+  },
+  tendenciaSubtext: {
+    fontSize: 12,
+    color: colors.textMedium,
+  },
+  diasCard: {
+    marginBottom: 16,
+  },
+  diasGrid: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  diaItem: {
+    flex: 1,
+    padding: 16,
+    borderRadius: 12,
+    alignItems: 'center',
+    borderWidth: 2,
+  },
+  mejorDia: {
+    backgroundColor: colors.success + '10',
+    borderColor: colors.success + '40',
+  },
+  peorDia: {
+    backgroundColor: colors.warning + '10',
+    borderColor: colors.warning + '40',
+  },
+  diaLabel: {
+    fontSize: 12,
+    color: colors.textMedium,
+    marginTop: 8,
+  },
+  diaFecha: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: colors.textDark,
+    marginTop: 4,
+  },
+  diaCantidad: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: colors.textDark,
+    marginTop: 4,
+  },
+  costosCard: {
+    marginBottom: 16,
+  },
+  costosGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 12,
+  },
+  costoItem: {
+    width: '48%',
+    backgroundColor: colors.background,
+    padding: 12,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: colors.veryLightGray,
+  },
+  costoLabel: {
+    fontSize: 12,
+    color: colors.textMedium,
+    marginBottom: 4,
+  },
+  costoValue: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: colors.textDark,
+  },
+  mortalidadGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 12,
+  },
+  mortalidadItem: {
+    width: '48%',
+    backgroundColor: colors.background,
+    padding: 12,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: colors.veryLightGray,
+  },
+  mortalidadLabel: {
+    fontSize: 12,
+    color: colors.textMedium,
+    marginBottom: 4,
+  },
+  mortalidadValue: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: colors.textDark,
+  },
+  recomendacionesCard: {
+    marginBottom: 16,
+    backgroundColor: colors.warning + '05',
+    borderColor: colors.warning + '20',
+    borderWidth: 1,
+  },
+  recomendacionesHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 12,
+  },
+  recomendacionesList: {
+    gap: 8,
+  },
+  recomendacionItem: {
+    paddingVertical: 8,
+    paddingLeft: 8,
+    borderLeftWidth: 3,
+    borderLeftColor: colors.warning,
+  },
+  recomendacionText: {
+    fontSize: 14,
+    color: colors.textDark,
+    lineHeight: 20,
+  },
+  historialCard: {
+    marginBottom: 16,
+  },
+  historialList: {
+    gap: 8,
+  },
+  historialItem: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: 12,
+    backgroundColor: colors.background,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: colors.veryLightGray,
+  },
+  historialFecha: {
+    flex: 1,
+  },
+  historialFechaText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: colors.textDark,
+  },
+  historialFechaCompleta: {
+    fontSize: 12,
+    color: colors.textMedium,
+    marginTop: 2,
+  },
+  historialCantidad: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: colors.ponedoras,
+  },
+  historialNota: {
+    fontSize: 12,
+    color: colors.textMedium,
+    fontStyle: 'italic',
+    textAlign: 'center',
+    marginTop: 8,
+  },
+  comparativoCard: {
+    marginBottom: 16,
+  },
+  comparativoHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 16,
+    gap: 12,
+  },
+  comparativoText: {
+    flex: 1,
+  },
+  comparativoTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: colors.textDark,
+    marginBottom: 4,
+  },
+  comparativoDescription: {
+    fontSize: 14,
+    color: colors.textMedium,
+    lineHeight: 20,
+  },
+  comparativoButton: {
+    marginTop: 8,
+  },
+  // Estilos para Tab Ventas
+  ventasStatsCard: {
+    marginBottom: 16,
+    backgroundColor: colors.success + '05',
+    borderColor: colors.success + '20',
+    borderWidth: 1,
+  },
+  ventasStatsGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'space-between',
+  },
+  ventasStatItem: {
+    width: '48%',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  ventasStatValue: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: colors.textDark,
+  },
+  ventasStatLabel: {
+    fontSize: 12,
+    color: colors.textMedium,
+    marginTop: 2,
+    textAlign: 'center',
+  },
+  ventasList: {
+    gap: 12,
+  },
+  ventaCard: {
+    padding: 16,
+  },
+  ventaInfo: {
+    flex: 1,
+  },
+  ventaNumero: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: colors.textDark,
+  },
+  ventaFecha: {
+    fontSize: 13,
+    color: colors.textMedium,
+    marginTop: 2,
+  },
+  clienteNombre: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: colors.textDark,
+    marginTop: 8,
+    marginBottom: 8,
+  },
+  ventaItemsContainer: {
+    marginTop: 12,
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: colors.veryLightGray,
+  },
+  ventaItemRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 8,
+  },
+  ventaItemInfo: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+    gap: 8,
+  },
+  ventaItemNombre: {
+    fontSize: 14,
+    color: colors.textDark,
+    flex: 1,
+  },
+  ventaItemCantidad: {
+    alignItems: 'flex-end',
+  },
+  ventaItemCantidadText: {
+    fontSize: 13,
+    color: colors.textMedium,
+  },
+  ventaItemPrecio: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: colors.primary,
+    marginTop: 2,
   },
 });

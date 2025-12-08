@@ -7,11 +7,11 @@ import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import React, { useEffect, useMemo, useState } from 'react';
 import { Modal, RefreshControl, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import AccionesLoteMenu, { AccionLote } from '../../../src/components/ui/AccionesLoteMenu';
 import Button from '../../../src/components/ui/Button';
 import Card from '../../../src/components/ui/Card';
 import CostUnitarioBadge from '../../../src/components/ui/CostUnitarioBadge';
 import GastoSheet from '../../../src/components/ui/GastoSheet';
-import AccionesLoteMenu, { AccionLote } from '../../../src/components/ui/AccionesLoteMenu';
 import { colors } from '../../../src/constants/colors';
 import { useGalpones } from '../../../src/hooks/useGalpones';
 import { useGastosSubscription } from '../../../src/hooks/useGastosSubscription';
@@ -20,6 +20,7 @@ import { useArticulosStore } from '../../../src/stores/articulosStore';
 import { useEngordeStore } from '../../../src/stores/engordeStore';
 import { useMortalityStore } from '../../../src/stores/mortalityStore';
 import { usePesoStore } from '../../../src/stores/pesoStore';
+import { showConfirmationAlert, showErrorAlert, showSuccessAlert } from '../../../src/utils/alert.service';
 
 export default function LotesTab() {
   console.log('🐔 LotesTab Engorde: Componente renderizado');
@@ -37,18 +38,35 @@ export default function LotesTab() {
   const [loteExpandido, setLoteExpandido] = useState<string | null>(null);
   const [menuAccionesVisible, setMenuAccionesVisible] = useState(false);
   const [loteParaAcciones, setLoteParaAcciones] = useState<any>(null);
+  const [modalCambioEstadoVisible, setModalCambioEstadoVisible] = useState(false);
+  const [loteParaCambiarEstado, setLoteParaCambiarEstado] = useState<any>(null);
   
-  const { lotes, cargarLotes, suscribirseAEngorde, isLoading: isLoadingLotes } = useEngordeStore();
+  const { lotes, suscribirseAEngorde, isLoading: isLoadingLotes } = useEngordeStore();
+  
+  // Debug: Log de lotes recibidos
+  useEffect(() => {
+    console.log('📊 [Engorde Tab] Lotes recibidos del store:', {
+      cantidad: lotes?.length || 0,
+      isLoading: isLoadingLotes,
+      lotes: lotes?.map(l => ({ 
+        id: l.id, 
+        nombre: l.nombre, 
+        estado: l.estado,
+        createdBy: (l as any).createdBy,
+        userId: (l as any).userId
+      })) || []
+    });
+  }, [lotes, isLoadingLotes]);
   const { articulos, loadArticulos } = useArticulosStore();
   const { suscribirseAMortalidadPorTipo, getRegistrosPorTipo } = useMortalityStore();
   const registrosMortalidad = getRegistrosPorTipo(TipoAve.POLLO_ENGORDE);
   const { registrosPeso, subscribeToPesosByTipo } = usePesoStore();
-  const { gastos, estadisticasGastos } = useGastosSubscription(TipoAve.POLLO_ENGORDE);
   const { galpones, cargarGalpones } = useGalpones();
+  useGastosSubscription(TipoAve.POLLO_ENGORDE); // Suscripción a gastos para actualizaciones en tiempo real
 
   // Estado para pull-to-refresh
   const [refreshing, setRefreshing] = useState(false);
-  
+
   // Estado para estadísticas de mortalidad por lote
   const [estadisticasMortalidad, setEstadisticasMortalidad] = useState<{[loteId: string]: number}>({});
   
@@ -85,7 +103,7 @@ export default function LotesTab() {
         // Calcular costo para cada lote en segundo plano
         for (const lote of lotes) {
           try {
-            // Importar el servicio directamente
+            // Importar servicios directamente
             const { obtenerGastos } = await import('../../../src/services/gastos.service');
             const { obtenerTotalMortalidad } = await import('../../../src/services/mortality.service');
             
@@ -142,10 +160,8 @@ export default function LotesTab() {
 
       calcularCostos();
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [lotes, registrosMortalidad]);
-  
-  // Debug: Log del estado inicial
-  console.log('🔍 Estado inicial:', { busqueda, ordenamiento, ordenDescendente, lotesCount: lotes?.length || 0 });
   
   // Cargar lotes, artículos y suscribirse a cambios en tiempo real
   useEffect(() => {
@@ -157,6 +173,7 @@ export default function LotesTab() {
     cargarGalpones();
 
     return () => {
+      console.log('🔕 Engorde: Limpiando suscripciones...');
       unsubscribeLotes();
       unsubscribeMortalidad();
       unsubscribePesos();
@@ -220,13 +237,10 @@ export default function LotesTab() {
       
       // Manejar diferentes tipos de fecha (timestamp de Firebase, string, Date)
       if (fechaNacimiento && typeof fechaNacimiento === 'object' && fechaNacimiento.seconds) {
-        // Timestamp de Firebase
         fecha = new Date(fechaNacimiento.seconds * 1000);
       } else if (typeof fechaNacimiento === 'string') {
-        // String de fecha
         fecha = new Date(fechaNacimiento);
       } else if (fechaNacimiento instanceof Date) {
-        // Objeto Date
         fecha = fechaNacimiento;
       } else {
         console.warn('Tipo de fecha no reconocido:', typeof fechaNacimiento, fechaNacimiento);
@@ -241,7 +255,7 @@ export default function LotesTab() {
       const ahora = new Date();
       const diferenciaMs = ahora.getTime() - fecha.getTime();
       const semanas = Math.floor(diferenciaMs / (1000 * 60 * 60 * 24 * 7));
-      return Math.max(0, semanas); // No permitir valores negativos
+      return Math.max(0, semanas);
     } catch (error) {
       console.error('Error calculando edad en semanas:', error, fechaNacimiento);
       return 0;
@@ -249,21 +263,15 @@ export default function LotesTab() {
   };
 
   // Función para calcular edad en días
-  // Los días se calculan basándose en medianoche (00:00), no en 24 horas exactas.
-  // Ejemplo: Si se crea a las 10:00 PM del día 1, cumple 1 día a las 00:00 del día 2.
   const calcularEdadEnDias = (fechaNacimiento: any) => {
     try {
       let fecha: Date;
       
-      // Manejar diferentes tipos de fecha (timestamp de Firebase, string, Date)
       if (fechaNacimiento && typeof fechaNacimiento === 'object' && fechaNacimiento.seconds) {
-        // Timestamp de Firebase
         fecha = new Date(fechaNacimiento.seconds * 1000);
       } else if (typeof fechaNacimiento === 'string') {
-        // String de fecha
         fecha = new Date(fechaNacimiento);
       } else if (fechaNacimiento instanceof Date) {
-        // Objeto Date
         fecha = fechaNacimiento;
       } else {
         console.warn('Tipo de fecha no reconocido:', typeof fechaNacimiento, fechaNacimiento);
@@ -275,7 +283,6 @@ export default function LotesTab() {
         return 0;
       }
       
-      // Establecer ambas fechas a medianoche (00:00:00.000)
       const fechaMidnight = new Date(fecha);
       fechaMidnight.setHours(0, 0, 0, 0);
       
@@ -283,13 +290,10 @@ export default function LotesTab() {
       const ahoraMidnight = new Date(ahora);
       ahoraMidnight.setHours(0, 0, 0, 0);
       
-      // Calcular diferencia en milisegundos
       const diferenciaMs = ahoraMidnight.getTime() - fechaMidnight.getTime();
-      
-      // Convertir a días (redondear hacia abajo)
       const dias = Math.floor(diferenciaMs / (1000 * 60 * 60 * 24));
       
-      return Math.max(0, dias); // No permitir valores negativos
+      return Math.max(0, dias);
     } catch (error) {
       console.error('Error calculando edad en días:', error, fechaNacimiento);
       return 0;
@@ -301,15 +305,11 @@ export default function LotesTab() {
     try {
       let fechaObj: Date;
       
-      // Manejar diferentes tipos de fecha (timestamp de Firebase, string, Date)
       if (fecha && typeof fecha === 'object' && fecha.seconds) {
-        // Timestamp de Firebase
         fechaObj = new Date(fecha.seconds * 1000);
       } else if (typeof fecha === 'string') {
-        // String de fecha
         fechaObj = new Date(fecha);
       } else if (fecha instanceof Date) {
-        // Objeto Date
         fechaObj = fecha;
       } else {
         console.warn('Tipo de fecha no reconocido para formatear:', typeof fecha, fecha);
@@ -328,23 +328,36 @@ export default function LotesTab() {
     }
   };
 
-  // Lógica de filtrado y ordenamiento
+  // Lógica de filtrado y ordenamiento - SIN FILTRAR POR ESTADO
   const lotesFiltradosYOrdenados = useMemo(() => {
-    if (!lotes || lotes.length === 0) return [];
+    if (!lotes || lotes.length === 0) {
+      console.log('⚠️ [Engorde Tab] No hay lotes para filtrar');
+      return [];
+    }
     
-    console.log('🔍 Aplicando filtros:', { busqueda, ordenamiento, ordenDescendente });
+    console.log('🔍 [Engorde Tab] Aplicando filtros:', { 
+      totalLotes: lotes.length,
+      busqueda, 
+      ordenamiento, 
+      ordenDescendente 
+    });
     
     // Crear una copia del array para no modificar el original
     let lotesFiltrados = [...lotes];
 
+    // NO filtrar por estado - mostrar TODOS los lotes
+    console.log('🔍 [Engorde Tab] Mostrando TODOS los lotes (sin filtro de estado):', lotesFiltrados.length);
+
     // Filtrar por búsqueda de texto
     if (busqueda.trim()) {
       const terminoBusqueda = busqueda.toLowerCase();
+      const antesBusqueda = lotesFiltrados.length;
       lotesFiltrados = lotesFiltrados.filter(lote => 
         lote.nombre.toLowerCase().includes(terminoBusqueda) ||
-        lote.raza.toLowerCase().includes(terminoBusqueda)
+        (lote.raza && lote.raza.toLowerCase().includes(terminoBusqueda)) ||
+        (lote.observaciones && lote.observaciones.toLowerCase().includes(terminoBusqueda))
       );
-      console.log('🔍 Lotes filtrados por búsqueda:', lotesFiltrados.length);
+      console.log(`🔍 [Engorde Tab] Lotes filtrados por búsqueda "${busqueda}": ${lotesFiltrados.length} de ${antesBusqueda}`);
     }
 
     // Ordenar los lotes
@@ -362,11 +375,10 @@ export default function LotesTab() {
           valorB = b.nombre.toLowerCase();
           break;
         case 'cantidadActual':
-          valorA = a.cantidadActual; // Ahora cantidadActual ya tiene las muertes restadas
+          valorA = a.cantidadActual;
           valorB = b.cantidadActual;
           break;
         case 'peso':
-          // TODO: Implementar cuando tengamos registros de peso
           valorA = 0;
           valorB = 0;
           break;
@@ -375,12 +387,10 @@ export default function LotesTab() {
           valorB = estadisticasMortalidad[b.id] || 0;
           break;
         case 'gastos':
-          // TODO: Implementar cuando tengamos gastos por lote
           valorA = 0;
           valorB = 0;
           break;
         case 'rentabilidad':
-          // TODO: Implementar cálculo de rentabilidad
           valorA = 0;
           valorB = 0;
           break;
@@ -395,7 +405,10 @@ export default function LotesTab() {
       return 0;
     });
 
-    console.log('🔍 Lotes finales ordenados:', lotesFiltrados.length);
+    console.log('✅ [Engorde Tab] Lotes finales ordenados:', {
+      cantidad: lotesFiltrados.length,
+      lotes: lotesFiltrados.map(l => ({ id: l.id, nombre: l.nombre, estado: l.estado }))
+    });
     return lotesFiltrados;
   }, [lotes, busqueda, ordenamiento, ordenDescendente, estadisticasMortalidad]);
 
@@ -412,7 +425,6 @@ export default function LotesTab() {
   };
 
   const handleVerLote = (loteId: string) => {
-    console.log('Ver detalles del lote:', loteId);
     router.push(`/(tabs)/engorde/detalles/${loteId}` as any);
   };
 
@@ -425,8 +437,52 @@ export default function LotesTab() {
     setMenuAccionesVisible(true);
   };
 
+  const handleLongPressLote = (lote: any) => {
+    setLoteParaCambiarEstado(lote);
+    setModalCambioEstadoVisible(true);
+  };
+
+  const handleCambiarEstado = async (nuevoEstado: EstadoLote) => {
+    if (!loteParaCambiarEstado) return;
+
+    try {
+      const { actualizarLote } = useEngordeStore.getState();
+      await actualizarLote(loteParaCambiarEstado.id, { estado: nuevoEstado });
+      showSuccessAlert('Éxito', `Estado del lote cambiado a ${nuevoEstado}`);
+      setModalCambioEstadoVisible(false);
+      setLoteParaCambiarEstado(null);
+    } catch (error: any) {
+      console.error('Error al cambiar estado del lote:', error);
+      showErrorAlert('Error', error.message || 'No se pudo cambiar el estado del lote');
+    }
+  };
+
+  const handleEliminarLote = async (lote: any) => {
+    if (lote.estado === EstadoLote.ACTIVO) {
+      showErrorAlert('No se puede eliminar', 'No se puede eliminar un lote activo. Debe finalizarlo primero.');
+      return;
+    }
+
+    showConfirmationAlert(
+      'Eliminar Lote',
+      `¿Estás seguro de que deseas eliminar el lote "${lote.nombre}"? Esta acción no se puede deshacer.`,
+      async () => {
+        try {
+          await useEngordeStore.getState().eliminarLote(lote.id);
+          showSuccessAlert('Éxito', 'Lote eliminado correctamente');
+        } catch (error: any) {
+          console.error('Error al eliminar lote:', error);
+          showErrorAlert('Error', error.message || 'No se pudo eliminar el lote');
+        }
+      },
+      undefined,
+      'Eliminar',
+      'Cancelar'
+    );
+  };
+
   const getAccionesParaLote = (lote: any): AccionLote[] => {
-    return [
+    const acciones: AccionLote[] = [
       {
         id: 'registrar-muerte',
         label: 'Registrar Muerte',
@@ -456,6 +512,19 @@ export default function LotesTab() {
         variant: 'primary',
       },
     ];
+
+    // Agregar opción de eliminar solo si el lote está finalizado
+    if (lote.estado !== EstadoLote.ACTIVO) {
+      acciones.push({
+        id: 'eliminar-lote',
+        label: 'Eliminar Lote',
+        icon: 'trash-outline',
+        onPress: () => handleEliminarLote(lote),
+        variant: 'danger',
+      });
+    }
+
+    return acciones;
   };
 
   // Obtener información de pesaje para un lote específico
@@ -468,7 +537,6 @@ export default function LotesTab() {
     setRefreshing(true);
     try {
       console.log('🔄 Refrescando datos de engorde...');
-      await cargarLotes();
       await loadArticulos();
       await cargarGalpones();
     } catch (error) {
@@ -479,7 +547,17 @@ export default function LotesTab() {
   };
 
   // Estado de carga inicial - mostrar skeleton solo si está cargando Y no hay lotes
+  // Si ya hay lotes cargados previamente, no mostrar skeleton aunque esté recargando
   const isInitialLoading = isLoadingLotes && (!lotes || lotes.length === 0);
+  
+  // Debug: Log del estado de carga
+  useEffect(() => {
+    console.log('🔄 [Engorde Tab] Estado de carga:', {
+      isLoadingLotes,
+      lotesCount: lotes?.length || 0,
+      isInitialLoading
+    });
+  }, [isLoadingLotes, lotes, isInitialLoading]);
 
   return (
     <ScrollView 
@@ -572,7 +650,7 @@ export default function LotesTab() {
           style={styles.sortButton}
           onPress={() => setMostrarOpcionesOrden(true)}
         >
-          <Ionicons name="swap-vertical" size={20} color={colors.primary} />
+          <Ionicons name="swap-vertical" size={20} color={colors.engorde} />
           <Text style={styles.sortButtonText}>
             Ordenar por: {opcionesOrdenamiento.find(opt => opt.key === ordenamiento)?.label}
           </Text>
@@ -581,15 +659,12 @@ export default function LotesTab() {
         
         <TouchableOpacity 
           style={styles.orderToggle}
-          onPress={() => {
-            console.log('🔄 Cambiando orden de', ordenDescendente ? 'descendente' : 'ascendente', 'a', !ordenDescendente ? 'descendente' : 'ascendente');
-            setOrdenDescendente(!ordenDescendente);
-          }}
+          onPress={() => setOrdenDescendente(!ordenDescendente)}
         >
           <Ionicons 
             name={ordenDescendente ? "arrow-down" : "arrow-up"} 
             size={20} 
-            color={colors.primary} 
+            color={colors.engorde} 
           />
         </TouchableOpacity>
       </View>
@@ -618,7 +693,6 @@ export default function LotesTab() {
                   ordenamiento === opcion.key && styles.ordenOptionSelected
                 ]}
                 onPress={() => {
-                  console.log('📊 Cambiando ordenamiento a:', opcion.key);
                   setOrdenamiento(opcion.key);
                   setMostrarOpcionesOrden(false);
                 }}
@@ -626,7 +700,7 @@ export default function LotesTab() {
                 <Ionicons 
                   name={opcion.icon as any} 
                   size={20} 
-                  color={ordenamiento === opcion.key ? colors.primary : colors.textMedium} 
+                  color={ordenamiento === opcion.key ? colors.engorde : colors.textMedium} 
                 />
                 <Text style={[
                   styles.ordenOptionText,
@@ -635,7 +709,7 @@ export default function LotesTab() {
                   {opcion.label}
                 </Text>
                 {ordenamiento === opcion.key && (
-                  <Ionicons name="checkmark" size={20} color={colors.primary} />
+                  <Ionicons name="checkmark" size={20} color={colors.engorde} />
                 )}
               </TouchableOpacity>
             ))}
@@ -687,7 +761,7 @@ export default function LotesTab() {
           {lotesFiltradosYOrdenados.map((lote, index) => {
             const galpon = galpones.find((g) => g.id === lote.galponId);
             const weightInfo = getWeightInfoForLote(lote.id);
-            const { costoUnitario, isLoading: loadingCosto } = costosUnitarios[lote.id] || { costoUnitario: 0, isLoading: false };
+            const { costoUnitario } = costosUnitarios[lote.id] || { costoUnitario: 0, isLoading: false };
 
             const badgeColors = galpon ? LOCATION_COLORS : LOCATION_COLORS_EMPTY;
             const badgeLabel = galpon ? galpon.nombre : 'Sin galpón';
@@ -702,6 +776,7 @@ export default function LotesTab() {
                 <TouchableOpacity
                   activeOpacity={0.7}
                   onPress={() => toggleLoteExpandido(lote.id)}
+                  onLongPress={() => handleLongPressLote(lote)}
                   style={styles.loteHeaderTouchable}
                 >
                   <View style={styles.loteHeader}>
@@ -752,9 +827,23 @@ export default function LotesTab() {
                       )}
                     </View>
                     <View style={styles.loteHeaderRight}>
-                      <View style={[styles.statusBadge, lote.estado === EstadoLote.ACTIVO ? styles.activeStatus : styles.inactiveStatus]}>
-                        <Text style={[styles.statusText, { color: lote.estado === EstadoLote.ACTIVO ? colors.success : colors.textMedium }]}>
-                          {lote.estado === EstadoLote.ACTIVO ? 'Activo' : 'Finalizado'}
+                      <View style={[
+                        styles.statusBadge, 
+                        lote.estado === EstadoLote.ACTIVO ? styles.activeStatus : 
+                        lote.estado === EstadoLote.VENDIDO ? styles.soldStatus :
+                        styles.inactiveStatus
+                      ]}>
+                        <Text style={[
+                          styles.statusText, 
+                          { 
+                            color: lote.estado === EstadoLote.ACTIVO ? colors.success : 
+                                   lote.estado === EstadoLote.VENDIDO ? colors.warning :
+                                   colors.textMedium 
+                          }
+                        ]}>
+                          {lote.estado === EstadoLote.ACTIVO ? 'Activo' : 
+                           lote.estado === EstadoLote.VENDIDO ? 'Vendido' :
+                           'Finalizado'}
                         </Text>
                       </View>
                       <CostUnitarioBadge
@@ -852,6 +941,77 @@ export default function LotesTab() {
           titulo={`Acciones - ${loteParaAcciones.nombre}`}
         />
       )}
+
+      {/* Modal de cambio de estado */}
+      <Modal
+        visible={modalCambioEstadoVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => {
+          setModalCambioEstadoVisible(false);
+          setLoteParaCambiarEstado(null);
+        }}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContentEstado}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Cambiar Estado del Lote</Text>
+              <TouchableOpacity onPress={() => {
+                setModalCambioEstadoVisible(false);
+                setLoteParaCambiarEstado(null);
+              }}>
+                <Ionicons name="close" size={24} color={colors.textDark} />
+              </TouchableOpacity>
+            </View>
+            
+            {loteParaCambiarEstado && (
+              <>
+                <Text style={styles.modalSubtitle}>
+                  Lote: <Text style={styles.modalLoteNombre}>{loteParaCambiarEstado.nombre}</Text>
+                </Text>
+                <Text style={styles.modalEstadoActual}>
+                  Estado actual: <Text style={styles.modalEstadoTexto}>{loteParaCambiarEstado.estado}</Text>
+                </Text>
+                
+                <View style={styles.estadosContainer}>
+                  {Object.values(EstadoLote).map((estado) => (
+                    <TouchableOpacity
+                      key={estado}
+                      style={[
+                        styles.estadoOption,
+                        loteParaCambiarEstado.estado === estado && styles.estadoOptionSelected
+                      ]}
+                      onPress={() => handleCambiarEstado(estado)}
+                      disabled={loteParaCambiarEstado.estado === estado}
+                    >
+                      <Ionicons 
+                        name={
+                          estado === EstadoLote.ACTIVO ? 'play-circle' :
+                          estado === EstadoLote.FINALIZADO ? 'checkmark-circle' :
+                          estado === EstadoLote.VENDIDO ? 'cash' :
+                          estado === EstadoLote.CANCELADO ? 'close-circle' :
+                          'swap-horizontal'
+                        }
+                        size={24} 
+                        color={loteParaCambiarEstado.estado === estado ? colors.engorde : colors.textMedium} 
+                      />
+                      <Text style={[
+                        styles.estadoOptionText,
+                        loteParaCambiarEstado.estado === estado && styles.estadoOptionTextSelected
+                      ]}>
+                        {estado}
+                      </Text>
+                      {loteParaCambiarEstado.estado === estado && (
+                        <Ionicons name="checkmark" size={20} color={colors.engorde} />
+                      )}
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              </>
+            )}
+          </View>
+        </View>
+      </Modal>
       </>
       )}
     </ScrollView>
@@ -891,7 +1051,6 @@ const styles = StyleSheet.create({
   addButton: {
     minWidth: 100,
   },
-  // Buscador
   searchContainer: {
     marginBottom: 12,
   },
@@ -917,8 +1076,6 @@ const styles = StyleSheet.create({
   clearButton: {
     padding: 4,
   },
-  
-  // Selector de Ordenamiento
   sortContainer: {
     flexDirection: 'row',
     marginBottom: 16,
@@ -944,13 +1101,11 @@ const styles = StyleSheet.create({
   },
   orderToggle: {
     padding: 10,
-    backgroundColor: colors.primary + '10',
+    backgroundColor: colors.engorde + '10',
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: colors.primary + '30',
+    borderColor: colors.engorde + '30',
   },
-  
-  // Modal de Ordenamiento
   modalOverlay: {
     flex: 1,
     backgroundColor: 'rgba(0, 0, 0, 0.5)',
@@ -986,7 +1141,7 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
   },
   ordenOptionSelected: {
-    backgroundColor: colors.primary + '10',
+    backgroundColor: colors.engorde + '10',
   },
   ordenOptionText: {
     flex: 1,
@@ -995,11 +1150,66 @@ const styles = StyleSheet.create({
     marginLeft: 12,
   },
   ordenOptionTextSelected: {
-    color: colors.primary,
+    color: colors.engorde,
     fontWeight: '500',
   },
-  
-  // Información de resultados
+  modalContentEstado: {
+    backgroundColor: colors.white,
+    borderRadius: 20,
+    paddingTop: 20,
+    paddingBottom: 30,
+    paddingHorizontal: 20,
+    marginHorizontal: 20,
+    maxHeight: '80%',
+  },
+  modalSubtitle: {
+    fontSize: 16,
+    color: colors.textMedium,
+    marginBottom: 8,
+  },
+  modalLoteNombre: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: colors.textDark,
+  },
+  modalEstadoActual: {
+    fontSize: 14,
+    color: colors.textMedium,
+    marginBottom: 20,
+  },
+  modalEstadoTexto: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: colors.engorde,
+  },
+  estadosContainer: {
+    gap: 12,
+  },
+  estadoOption: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: colors.veryLightGray,
+    backgroundColor: colors.white,
+  },
+  estadoOptionSelected: {
+    backgroundColor: colors.engorde + '10',
+    borderColor: colors.engorde + '50',
+  },
+  estadoOptionText: {
+    flex: 1,
+    fontSize: 16,
+    color: colors.textDark,
+    marginLeft: 12,
+    fontWeight: '500',
+  },
+  estadoOptionTextSelected: {
+    color: colors.engorde,
+    fontWeight: '600',
+  },
   resultsInfo: {
     marginBottom: 12,
     paddingHorizontal: 4,
@@ -1079,18 +1289,6 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     borderTopColor: colors.veryLightGray,
   },
-  costBadge: {
-    // El badge ahora está en loteHeaderRight, no necesita posición absoluta
-  },
-  loteName: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: colors.textDark,
-  },
-  loteDate: {
-    fontSize: 14,
-    color: colors.textMedium,
-  },
   locationBadge: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1105,22 +1303,31 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '600',
   },
-  statusContainer: {
-    alignItems: 'flex-end',
+  costBadge: {
+    // El badge ahora está en loteHeaderRight, no necesita posición absoluta
+  },
+  loteName: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: colors.textDark,
+  },
+  loteDate: {
+    fontSize: 14,
+    color: colors.textMedium,
   },
   statusBadge: {
     paddingVertical: 4,
     paddingHorizontal: 8,
     borderRadius: 12,
   },
-  editButton: {
-    minWidth: 60,
-  },
   activeStatus: {
-    backgroundColor: colors.success + '20', // Transparencia
+    backgroundColor: colors.success + '20',
   },
   inactiveStatus: {
-    backgroundColor: colors.lightGray + '20', // Transparencia
+    backgroundColor: colors.lightGray + '20',
+  },
+  soldStatus: {
+    backgroundColor: colors.warning + '20',
   },
   statusText: {
     fontSize: 12,
@@ -1150,10 +1357,6 @@ const styles = StyleSheet.create({
     gap: 12,
     marginTop: 12,
   },
-  actionButton: {
-    marginLeft: 8,
-    marginBottom: 8,
-  },
   editButtonExpanded: {
     minWidth: 100,
   },
@@ -1170,7 +1373,6 @@ const styles = StyleSheet.create({
     marginLeft: 4,
     fontWeight: '500',
   },
-  // Loading Skeleton Styles
   loadingContainer: {
     flex: 1,
   },
@@ -1263,6 +1465,3 @@ const styles = StyleSheet.create({
     height: 32,
   },
 });
-
-
-

@@ -10,11 +10,12 @@
 
 import { doc, collection, serverTimestamp, DocumentReference, Transaction, getDoc, getDocs, query, where, orderBy } from 'firebase/firestore';
 import { db } from '../components/config/firebase';
-import { TipoAve } from '../types/enums';
+import { EstadoLote, TipoAve } from '../types/enums';
 import { 
   Cliente, 
   Producto, 
   ProductoHuevos, 
+  ProductoLibrasEngorde,
   TipoProducto, 
   UnidadVentaHuevos, 
   TipoVenta,
@@ -39,6 +40,8 @@ export interface ItemVenta {
   descuento?: number;
   subtotal: number;
   total: number;
+  // Para ventas por libras: cantidad de pollos que representa esta venta
+  cantidadPollos?: number;
 }
 
 export interface CrearVenta {
@@ -110,9 +113,18 @@ class VentasService {
       postProcessing: (result, input) => this.postProcesarVenta(result, input),
     };
 
+    // Calcular timeout dinámico basado en la complejidad de la venta
+    // Base: 30 segundos + 5 segundos por cada item adicional después del primero
+    const baseTimeout = 30000; // 30 segundos base
+    const timeoutPorItem = 5000; // 5 segundos adicionales por item
+    const timeoutCalculado = baseTimeout + (datosVenta.items.length - 1) * timeoutPorItem;
+    const timeoutFinal = Math.min(timeoutCalculado, 60000); // Máximo 60 segundos
+    
+    console.log(`⏱️ [VentasService] Timeout calculado: ${timeoutFinal}ms para ${datosVenta.items.length} items`);
+    
     const transactionResult = await executeTransaction(datosVenta, phases, {
       operationName: 'Crear Venta',
-      timeout: 25000, // 25 segundos
+      timeout: timeoutFinal,
       retries: 2,
     });
 
@@ -179,6 +191,12 @@ class VentasService {
           const { tipo, loteId } = this.extractLoteIdFromProductoId(item.productoId);
           console.log(`📋 [VentasService] Extraído - tipo: ${tipo}, loteId: ${loteId}`);
           
+          // Verificar si es producto de libras
+          if (item.producto.tipo === TipoProducto.LIBRAS_POLLOS_ENGORDE && tipo !== 'libras') {
+            console.error(`❌ [VentasService] INCONSISTENCIA: producto.tipo es LIBRAS_POLLOS_ENGORDE pero tipo extraído es ${tipo}`);
+            console.error(`❌ [VentasService] productoId: ${item.productoId}`);
+          }
+          
           // Validar que el producto tenga tipoAve
           if (!item.producto.tipoAve) {
             errors.push(`Producto ${item.producto.nombre} no tiene tipo de ave definido`);
@@ -233,6 +251,24 @@ class VentasService {
               continue;
             }
             
+            if (tipo === 'libras') {
+              const productoLibras = item.producto as ProductoLibrasEngorde;
+              
+              // Validar que el producto tenga peso promedio
+              if (!productoLibras.pesoPromedio || productoLibras.pesoPromedio <= 0) {
+                errors.push(`El lote ${lote.nombre || loteId} no tiene registros de peso. Debe registrar un pesaje antes de vender por libras.`);
+                continue;
+              }
+              
+              const pesoPromedio = productoLibras.pesoPromedio;
+              const pollosNecesarios = Math.ceil(item.cantidad / pesoPromedio);
+              
+              if (pollosNecesarios > lote.cantidadActual) {
+                errors.push(`Stock insuficiente en lote ${loteId}. Se necesitan ${pollosNecesarios} pollos (${item.cantidad} libras / ${pesoPromedio.toFixed(2)} libras/pollo) pero solo hay ${lote.cantidadActual} disponibles`);
+                continue;
+              }
+            }
+            
             lotesData.set(`${item.producto.tipoAve}-${loteId}`, {
               loteRef,
               lote,
@@ -277,18 +313,26 @@ class VentasService {
     const { lotesData, config } = validationData;
 
     console.log('⚡ [VentasService] Ejecutando transacción atómica...');
+    const inicioTransaccion = Date.now();
 
-    // LECTURAS: Generar número de venta y re-validar lotes
+    // ========== FASE 1: TODAS LAS LECTURAS ==========
+    
+    // LECTURA 1: Generar número de venta
+    console.log('📖 [VentasService] LECTURA 1: Obteniendo contador de ventas...');
     const contadorRef = doc(db, this.COLLECTIONS.CONTADOR_VENTAS, userId);
     const contadorSnap = await transaction.get(contadorRef);
+    console.log(`✅ [VentasService] Contador obtenido en ${Date.now() - inicioTransaccion}ms`);
     
     const contador = contadorSnap.exists() 
       ? (contadorSnap.data().siguienteNumero || 1)
       : 1;
 
-    // Re-leer lotes dentro de transacción (race condition check)
+    // LECTURA 2: Re-leer lotes dentro de transacción (race condition check)
+    console.log(`📖 [VentasService] LECTURA 2: Re-leyendo ${lotesData.size} lotes...`);
+    const inicioLecturaLotes = Date.now();
     const lotesEnTransaccion = new Map();
     for (const [key, data] of lotesData.entries()) {
+      console.log(`📖 [VentasService] Leyendo lote ${data.lote.id} (tipo: ${data.tipo})...`);
       const loteSnap = await transaction.get(data.loteRef);
       if (!loteSnap.exists()) {
         throw new Error(`Lote ${data.lote.id} no encontrado en transacción`);
@@ -304,10 +348,102 @@ class VentasService {
         throw new Error(`Stock insuficiente en lote ${data.lote.id}. Disponible: ${lote.cantidadActual}, Solicitado: ${data.item.cantidad}`);
       }
       
+      if (data.tipo === 'libras') {
+        const productoLibras = data.item.producto as ProductoLibrasEngorde;
+        
+        // Validar que el producto tenga peso promedio
+        if (!productoLibras.pesoPromedio || productoLibras.pesoPromedio <= 0) {
+          throw new Error(`El lote ${data.lote.nombre || data.lote.id} no tiene registros de peso. Debe registrar un pesaje antes de vender por libras.`);
+        }
+        
+        const pesoPromedio = productoLibras.pesoPromedio;
+        const pollosNecesarios = Math.ceil(data.item.cantidad / pesoPromedio);
+        
+        if (pollosNecesarios > lote.cantidadActual) {
+          throw new Error(`Stock insuficiente en lote ${data.lote.id}. Se necesitan ${pollosNecesarios} pollos (${data.item.cantidad} libras / ${pesoPromedio.toFixed(2)} libras/pollo) pero solo hay ${lote.cantidadActual} disponibles`);
+        }
+      }
+      
       lotesEnTransaccion.set(key, { ...data, lote });
     }
+    console.log(`✅ [VentasService] Lotes re-leídos en ${Date.now() - inicioLecturaLotes}ms`);
 
-    // ESCRITURAS: Crear venta y actualizar inventario
+    // LECTURA 3: Leer todos los registros de huevos necesarios ANTES de cualquier escritura
+    console.log('📖 [VentasService] LECTURA 3: Leyendo registros de huevos...');
+    const inicioLecturaHuevos = Date.now();
+    const registrosHuevosInfo = new Map<string, Array<{ id: string; fecha: Date; cantidadTotal: number; cantidadVendida: number; cantidadDisponible: number; ref: DocumentReference }>>();
+    
+    for (const item of datosVenta.items) {
+      if (item.producto.tipo === TipoProducto.HUEVOS) {
+        const productoHuevos = item.producto as ProductoHuevos;
+        
+        if (!productoHuevos.registrosIds || productoHuevos.registrosIds.length === 0) {
+          throw new Error(`Producto de huevos ${productoHuevos.nombre} no tiene registros asociados`);
+        }
+
+        const registrosConInfo: Array<{ id: string; fecha: Date; cantidadTotal: number; cantidadVendida: number; cantidadDisponible: number; ref: DocumentReference }> = [];
+        
+        // Leer todos los registros de este producto
+        for (const registroId of productoHuevos.registrosIds) {
+          const registroRef = doc(db, 'registrosPonedoras', registroId);
+          const registroSnap = await transaction.get(registroRef);
+          
+          if (!registroSnap.exists()) {
+            console.warn(`⚠️ [VentasService] Registro ${registroId} no encontrado, saltando...`);
+            continue;
+          }
+
+          const registroData = registroSnap.data();
+          const cantidadTotal = registroData?.cantidadHuevos || registroData?.cantidad || 0;
+          const cantidadVendidaActual = registroData?.cantidadVendida || 0;
+          const cantidadDisponible = cantidadTotal - cantidadVendidaActual;
+          
+          // Obtener fecha del registro
+          let fecha: Date;
+          if (registroData.fecha?.toDate) {
+            fecha = registroData.fecha.toDate();
+          } else if (registroData.fecha instanceof Date) {
+            fecha = registroData.fecha;
+          } else {
+            fecha = new Date(registroData.fecha || registroData.createdAt?.toDate() || Date.now());
+          }
+
+          if (cantidadDisponible > 0) {
+            registrosConInfo.push({
+              id: registroId,
+              fecha,
+              cantidadTotal,
+              cantidadVendida: cantidadVendidaActual,
+              cantidadDisponible,
+              ref: registroRef,
+            });
+          }
+        }
+
+        // Ordenar por fecha (más antiguos primero - FIFO)
+        registrosConInfo.sort((a, b) => a.fecha.getTime() - b.fecha.getTime());
+        
+        // Validar disponibilidad total antes de continuar
+        const disponibilidadTotal = registrosConInfo.reduce((sum, r) => sum + r.cantidadDisponible, 0);
+        let cantidadHuevosNecesaria: number;
+        if (productoHuevos.unidadVenta === UnidadVentaHuevos.CAJAS) {
+          cantidadHuevosNecesaria = item.cantidad * (productoHuevos.cantidadPorCaja || config.cantidadHuevosPorCaja);
+        } else {
+          cantidadHuevosNecesaria = item.cantidad;
+        }
+        
+        if (disponibilidadTotal < cantidadHuevosNecesaria) {
+          throw new Error(`Stock insuficiente para ${productoHuevos.nombre}. Disponible: ${disponibilidadTotal}, Solicitado: ${cantidadHuevosNecesaria}`);
+        }
+        
+        registrosHuevosInfo.set(item.productoId, registrosConInfo);
+      }
+    }
+    console.log(`✅ [VentasService] Registros de huevos leídos en ${Date.now() - inicioLecturaHuevos}ms`);
+
+    // ========== FASE 2: TODAS LAS ESCRITURAS ==========
+    console.log('✍️ [VentasService] FASE 2: Iniciando escrituras...');
+    const inicioEscrituras = Date.now();
     const numero = `VEN-${contador.toString().padStart(4, '0')}`;
     const ahora = new Date();
     
@@ -367,31 +503,78 @@ class VentasService {
     for (const [key, data] of lotesEnTransaccion.entries()) {
       const { loteRef, lote, tipo, item } = data;
       
+      console.log(`🔄 [VentasService] Actualizando lote ${lote.id}, tipo: ${tipo}, cantidadActual actual: ${lote.cantidadActual}`);
+      
       if (tipo === 'lote') {
         // Marcar lote como vendido
+        console.log(`✅ [VentasService] Marcando lote ${lote.id} como VENDIDO`);
         transaction.update(loteRef, {
-          estado: 'VENDIDO',
+          estado: EstadoLote.VENDIDO,
           fechaVenta: serverTimestamp(),
           updatedAt: serverTimestamp(),
         });
       } else if (tipo === 'unidades') {
         // Reducir cantidad
         const nuevaCantidad = lote.cantidadActual - item.cantidad;
+        console.log(`✅ [VentasService] Debitando ${item.cantidad} unidades del lote ${lote.id}: ${lote.cantidadActual} - ${item.cantidad} = ${nuevaCantidad}`);
         const actualizacion: any = {
           cantidadActual: nuevaCantidad,
           updatedAt: serverTimestamp(),
         };
         
         if (nuevaCantidad === 0) {
-          actualizacion.estado = 'VENDIDO';
+          actualizacion.estado = EstadoLote.VENDIDO;
           actualizacion.fechaVenta = serverTimestamp();
         }
         
         transaction.update(loteRef, actualizacion);
+      } else if (tipo === 'libras') {
+        // Calcular cuántos pollos debitar basándose en las libras vendidas
+        const productoLibras = item.producto as ProductoLibrasEngorde;
+        
+        // Validar que el producto tenga peso promedio
+        if (!productoLibras.pesoPromedio || productoLibras.pesoPromedio <= 0) {
+          throw new Error(`El lote ${lote.nombre || lote.id} no tiene registros de peso. Debe registrar un pesaje antes de vender por libras.`);
+        }
+        
+        const pesoPromedio = productoLibras.pesoPromedio;
+        const librasVendidas = item.cantidad;
+        
+        // Calcular pollos a debitar: libras vendidas / peso promedio (redondeado hacia arriba)
+        const pollosADebitar = Math.ceil(librasVendidas / pesoPromedio);
+        
+        console.log(`📊 [VentasService] Venta de libras: ${librasVendidas} libras, peso promedio: ${pesoPromedio.toFixed(2)} libras/pollo, pollos a debitar: ${pollosADebitar}`);
+        console.log(`📊 [VentasService] Lote ${lote.id} - Cantidad actual ANTES del debito: ${lote.cantidadActual}`);
+        
+        // Validar que hay suficientes pollos disponibles
+        if (pollosADebitar > lote.cantidadActual) {
+          throw new Error(`Stock insuficiente. Se necesitan ${pollosADebitar} pollos pero solo hay ${lote.cantidadActual} disponibles`);
+        }
+        
+        // Reducir cantidad de pollos
+        const nuevaCantidad = lote.cantidadActual - pollosADebitar;
+        console.log(`✅ [VentasService] Debitando ${pollosADebitar} pollos del lote ${lote.id}: ${lote.cantidadActual} - ${pollosADebitar} = ${nuevaCantidad}`);
+        
+        const actualizacion: any = {
+          cantidadActual: nuevaCantidad,
+          updatedAt: serverTimestamp(),
+        };
+        
+        if (nuevaCantidad === 0) {
+          actualizacion.estado = EstadoLote.VENDIDO;
+          actualizacion.fechaVenta = serverTimestamp();
+          console.log(`✅ [VentasService] Lote ${lote.id} marcado como VENDIDO (cantidad llegó a 0)`);
+        }
+        
+        console.log(`🔄 [VentasService] Ejecutando transaction.update para lote ${lote.id} con cantidadActual: ${nuevaCantidad}`);
+        transaction.update(loteRef, actualizacion);
+        console.log(`✅ [VentasService] transaction.update ejecutado para lote ${lote.id}`);
+      } else {
+        console.warn(`⚠️ [VentasService] Tipo desconocido: ${tipo} para lote ${lote.id}`);
       }
     }
 
-    // Registrar ventas de huevos específicas
+    // ESCRITURA: Registrar ventas de huevos y debitar de registros de producción
     for (const item of datosVenta.items) {
       if (item.producto.tipo === TipoProducto.HUEVOS) {
         const productoHuevos = item.producto as ProductoHuevos;
@@ -404,6 +587,41 @@ class VentasService {
           cantidadHuevos = item.cantidad;
         }
 
+        // Obtener registros ya leídos en la fase de lecturas
+        const registrosConInfo = registrosHuevosInfo.get(item.productoId);
+        if (!registrosConInfo || registrosConInfo.length === 0) {
+          throw new Error(`No se encontraron registros disponibles para ${productoHuevos.nombre}`);
+        }
+
+        // Distribuir la venta entre los registros ordenados (FIFO)
+        let cantidadRestante = cantidadHuevos;
+        const registrosAfectados: Array<{ registroId: string; cantidadVendida: number }> = [];
+
+        for (const registroInfo of registrosConInfo) {
+          if (cantidadRestante <= 0) break;
+
+          const cantidadAVenderDeEsteRegistro = Math.min(registroInfo.cantidadDisponible, cantidadRestante);
+          const nuevaCantidadVendida = registroInfo.cantidadVendida + cantidadAVenderDeEsteRegistro;
+
+          // Actualizar registro con cantidad vendida (usar la referencia ya obtenida)
+          transaction.update(registroInfo.ref, {
+            cantidadVendida: nuevaCantidadVendida,
+            updatedAt: serverTimestamp(),
+          });
+
+          registrosAfectados.push({
+            registroId: registroInfo.id,
+            cantidadVendida: cantidadAVenderDeEsteRegistro,
+          });
+
+          cantidadRestante -= cantidadAVenderDeEsteRegistro;
+        }
+
+        if (cantidadRestante > 0) {
+          throw new Error(`No hay suficientes huevos disponibles. Faltan ${cantidadRestante} huevos de los ${cantidadHuevos} solicitados.`);
+        }
+
+        // Crear registro de venta de huevos
         const ventaHuevosRef = doc(collection(db, this.COLLECTIONS.VENTAS_HUEVOS));
         const ventaHuevosData = {
           ventaId: nuevaVenta.id,
@@ -413,13 +631,16 @@ class VentasService {
           cantidad: cantidadHuevos,
           cantidadCajas: productoHuevos.unidadVenta === UnidadVentaHuevos.CAJAS ? item.cantidad : undefined,
           unidadVenta: productoHuevos.unidadVenta,
-          registrosIds: productoHuevos.registrosIds,
+          registrosIds: registrosAfectados.map(r => r.registroId),
+          registrosDetalle: registrosAfectados, // Detalle de cuánto se vendió de cada registro
           createdBy: userId,
           createdAt: serverTimestamp(),
           updatedAt: serverTimestamp(),
         };
 
         transaction.set(ventaHuevosRef, transaccionesService.cleanUndefinedValues(ventaHuevosData));
+        
+        console.log(`🥚 [VentasService] ${cantidadHuevos} huevos debitados de ${registrosAfectados.length} registros`);
       }
     }
 
@@ -495,6 +716,11 @@ class VentasService {
     // Formato: "unidades-{loteId}"
     if (parts[0] === 'unidades' && parts.length >= 2) {
       return { tipo: 'unidades', loteId: parts.slice(1).join('-') };
+    }
+    
+    // Formato: "libras-{loteId}"
+    if (parts[0] === 'libras' && parts.length >= 2) {
+      return { tipo: 'libras', loteId: parts.slice(1).join('-') };
     }
     
     // Formato: "huevos-unidades-{loteId}-{timestamp}" o "huevos-cajas-{loteId}-{timestamp}"
@@ -678,6 +904,50 @@ class VentasService {
   }
 
   /**
+   * Obtiene ventas filtradas por loteId
+   * Busca en los items de las ventas productos que pertenezcan al lote especificado
+   */
+  async getVentasPorLote(loteId: string, tipoAve?: TipoAve): Promise<Venta[]> {
+    try {
+      const userId = requireAuth();
+      const todasLasVentas = await this.getVentas();
+      
+      // Filtrar ventas que contengan items relacionados con el lote
+      const ventasFiltradas = todasLasVentas.filter(venta => {
+        return venta.items.some(item => {
+          const producto = item.producto;
+          
+          // Verificar si el producto tiene loteId
+          if ('loteId' in producto && producto.loteId === loteId) {
+            return true;
+          }
+          
+          // Verificar si el productoId contiene el loteId
+          if (item.productoId.includes(loteId)) {
+            return true;
+          }
+          
+          // Para productos de huevos, verificar registrosIds
+          if (producto.tipo === TipoProducto.HUEVOS) {
+            const productoHuevos = producto as ProductoHuevos;
+            if (productoHuevos.loteId === loteId) {
+              return true;
+            }
+          }
+          
+          return false;
+        });
+      });
+      
+      console.log(`✅ [VentasService] ${ventasFiltradas.length} ventas encontradas para lote ${loteId}`);
+      return ventasFiltradas;
+    } catch (error) {
+      console.error('❌ [VentasService] Error al obtener ventas por lote:', error);
+      return [];
+    }
+  }
+
+  /**
    * Obtiene una venta por ID
    */
   async getVenta(id: string): Promise<Venta | null> {
@@ -699,5 +969,6 @@ export const ventasService = new VentasService();
 // Funciones de conveniencia
 export const crearVenta = (datos: CrearVenta) => ventasService.crearVenta(datos);
 export const getVentas = () => ventasService.getVentas();
+export const getVentasPorLote = (loteId: string, tipoAve?: TipoAve) => ventasService.getVentasPorLote(loteId, tipoAve);
 export const getVenta = (id: string) => ventasService.getVenta(id);
 export const cancelarVenta = (id: string) => ventasService.cancelarVenta(id);

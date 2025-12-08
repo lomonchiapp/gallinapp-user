@@ -1,5 +1,5 @@
 /**
- * Pantalla para registrar producción/crecimiento de pollos israelíes
+ * Pantalla para registrar producción/crecimiento de pollos de levante
  */
 
 import { Ionicons } from '@expo/vector-icons';
@@ -10,16 +10,16 @@ import Button from '../../../src/components/ui/Button';
 import Card from '../../../src/components/ui/Card';
 import Input from '../../../src/components/ui/Input';
 import { colors } from '../../../src/constants/colors';
-import { useIsraeliesStore } from '../../../src/stores/levantesStore';
+import { useLevantesStore } from '../../../src/stores/levantesStore';
 
-export default function RegistrarProduccionIsraeliesScreen() {
+export default function RegistrarProduccionLevantesScreen() {
   const { loteId } = useLocalSearchParams<{ loteId: string }>();
   const [edad, setEdad] = useState('');
   const [pesoPromedio, setPesoPromedio] = useState('');
   const [observaciones, setObservaciones] = useState('');
   const [lote, setLote] = useState<any>(null);
   
-  const { lotes, registrarEdad, isLoading, error } = useIsraeliesStore();
+  const { lotes, registrarEdad, isLoading, error } = useLevantesStore();
   
   // Cargar datos del lote
   useEffect(() => {

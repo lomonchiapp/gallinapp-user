@@ -3,5 +3,6 @@ export interface HuevoRegistro {
     loteId: string;
     fecha: Date;
     cantidad: number;
+    cantidadVendida?: number; // Cantidad de huevos ya vendidos de este registro
   }
   
