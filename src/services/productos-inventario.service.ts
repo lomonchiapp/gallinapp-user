@@ -5,7 +5,6 @@
 
 import { EstadoLote, TipoAve } from '../types/enums';
 import { Producto, ProductoLoteCompleto, ProductoUnidades, TipoProducto } from '../types/facturacion';
-import { obtenerConfiguracion } from './appConfig.service';
 import { actualizarLoteEngorde, obtenerLotesEngorde } from './engorde.service';
 import { actualizarLoteLevante, obtenerLotesLevantes } from './levantes.service';
 import { actualizarLotePonedora, obtenerLotesPonedoras } from './ponedoras.service';
@@ -208,7 +207,7 @@ class ProductosInventarioService {
           // Precio por gallina ponedora basado en precio unitario israelí
           // Ajustar según edad y capacidad productiva
           const edadEnDias = this.calcularEdadEnDias(lote.fechaNacimiento);
-          const precioBasePonedora = config.precioUnidadIsraeli || 150; // RD$
+          const precioBasePonedora = config.defaultLevantePricePerUnit; // RD$
           
           // Lógica de precios por edad
           if (edadEnDias < 120) return Math.round(precioBasePonedora * 0.7); // Pollitas (70%)
@@ -217,11 +216,11 @@ class ProductosInventarioService {
           
         case TipoAve.POLLO_LEVANTE:
           // Precio por pollo levante (israelí) - precio fijo
-          return Math.round(config.precioUnidadIsraeli || 150); // RD$ por unidad
+          return Math.round(config.defaultLevantePricePerUnit); // RD$ por unidad
           
         case TipoAve.POLLO_ENGORDE:
           // Precio basado en peso promedio del lote y precio por libra
-          const precioLibra = config.precioLibraEngorde || 65; // RD$ por libra
+          const precioLibra = config.defaultChickenPricePerPound; // RD$ por libra
           const pesoPromedioKg = lote.pesoPromedio || 2.5; // kg (asumiendo que viene en kg)
           const pesoPromedioLibras = pesoPromedioKg * 2.20462; // Convertir a libras
           return Math.round(pesoPromedioLibras * precioLibra);

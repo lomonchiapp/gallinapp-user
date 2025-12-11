@@ -1,22 +1,23 @@
 /**
- * Componente de botón personalizado para Asoaves
+ * Componente de botón personalizado para Gallinapp
+ * Estilo moderno con soporte para fondos claros y oscuros
  */
 
 import React from 'react';
 import {
-    ActivityIndicator,
-    StyleSheet,
-    Text,
-    TextStyle,
-    TouchableOpacity,
-    ViewStyle,
+  ActivityIndicator,
+  StyleSheet,
+  Text,
+  TextStyle,
+  TouchableOpacity,
+  ViewStyle,
 } from 'react-native';
-import { colors } from '../../constants/colors';
+import { borderRadius, colors, shadows, spacing, typography } from '../../constants/designSystem';
 
 interface ButtonProps {
   title: string;
   onPress: () => void;
-  variant?: 'primary' | 'secondary' | 'outline' | 'danger' | 'success';
+  variant?: 'primary' | 'secondary' | 'outline' | 'danger' | 'success' | 'glass';
   size?: 'small' | 'medium' | 'large';
   disabled?: boolean;
   loading?: boolean;
@@ -43,37 +44,47 @@ export const Button: React.FC<ButtonProps> = ({
     // Estilo según variante
     switch (variant) {
       case 'primary':
-        buttonStyle.backgroundColor = colors.primary;
+        buttonStyle.backgroundColor = colors.primary[500];
+        buttonStyle = { ...buttonStyle, ...shadows.md };
         break;
       case 'secondary':
-        buttonStyle.backgroundColor = colors.secondary;
+        buttonStyle.backgroundColor = colors.secondary[500];
+        buttonStyle = { ...buttonStyle, ...shadows.md };
         break;
       case 'outline':
         buttonStyle.backgroundColor = 'transparent';
-        buttonStyle.borderWidth = 1;
-        buttonStyle.borderColor = colors.primary;
+        buttonStyle.borderWidth = 2;
+        buttonStyle.borderColor = 'rgba(255, 255, 255, 0.5)';
+        break;
+      case 'glass':
+        buttonStyle.backgroundColor = 'rgba(255, 255, 255, 0.95)';
+        buttonStyle.borderWidth = 1.5;
+        buttonStyle.borderColor = 'rgba(255, 255, 255, 0.8)';
+        buttonStyle = { ...buttonStyle, ...shadows.lg };
         break;
       case 'danger':
-        buttonStyle.backgroundColor = colors.danger;
+        buttonStyle.backgroundColor = colors.error[500];
+        buttonStyle = { ...buttonStyle, ...shadows.md };
         break;
       case 'success':
-        buttonStyle.backgroundColor = colors.success;
+        buttonStyle.backgroundColor = colors.success[500];
+        buttonStyle = { ...buttonStyle, ...shadows.md };
         break;
     }
     
     // Estilo según tamaño
     switch (size) {
       case 'small':
-        buttonStyle.paddingVertical = 8;
-        buttonStyle.paddingHorizontal = 16;
+        buttonStyle.paddingVertical = spacing[2];
+        buttonStyle.paddingHorizontal = spacing[4];
         break;
       case 'medium':
-        buttonStyle.paddingVertical = 12;
-        buttonStyle.paddingHorizontal = 24;
+        buttonStyle.paddingVertical = spacing[3];
+        buttonStyle.paddingHorizontal = spacing[6];
         break;
       case 'large':
-        buttonStyle.paddingVertical = 16;
-        buttonStyle.paddingHorizontal = 32;
+        buttonStyle.paddingVertical = spacing[4];
+        buttonStyle.paddingHorizontal = spacing[8];
         break;
     }
     
@@ -84,7 +95,7 @@ export const Button: React.FC<ButtonProps> = ({
     
     // Estilo para botón deshabilitado
     if (disabled) {
-      buttonStyle.opacity = 0.6;
+      buttonStyle.opacity = 0.5;
     }
     
     return buttonStyle;
@@ -97,23 +108,26 @@ export const Button: React.FC<ButtonProps> = ({
     // Color del texto según variante
     switch (variant) {
       case 'outline':
-        textStyleObj.color = colors.primary;
+        textStyleObj.color = colors.neutral[0];
+        break;
+      case 'glass':
+        textStyleObj.color = colors.primary[600];
         break;
       default:
-        textStyleObj.color = colors.white;
+        textStyleObj.color = colors.neutral[0];
         break;
     }
     
     // Tamaño del texto según tamaño del botón
     switch (size) {
       case 'small':
-        textStyleObj.fontSize = 14;
+        textStyleObj.fontSize = typography.sizes.sm;
         break;
       case 'medium':
-        textStyleObj.fontSize = 16;
+        textStyleObj.fontSize = typography.sizes.base;
         break;
       case 'large':
-        textStyleObj.fontSize = 18;
+        textStyleObj.fontSize = typography.sizes.lg;
         break;
     }
     
@@ -133,7 +147,7 @@ export const Button: React.FC<ButtonProps> = ({
     >
       {loading ? (
         <ActivityIndicator 
-          color={variant === 'outline' ? colors.primary : colors.white} 
+          color={variant === 'outline' || variant === 'glass' ? colors.primary[500] : colors.neutral[0]} 
           size={size === 'small' ? 'small' : 'small'}
         />
       ) : (
@@ -147,13 +161,13 @@ export const Button: React.FC<ButtonProps> = ({
 
 const styles = StyleSheet.create({
   button: {
-    borderRadius: 8,
+    borderRadius: borderRadius.lg,
     justifyContent: 'center',
     alignItems: 'center',
     flexDirection: 'row',
   },
   text: {
-    fontWeight: '600',
+    fontWeight: typography.weights.bold,
   },
 });
 

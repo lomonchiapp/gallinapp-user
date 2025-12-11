@@ -1,45 +1,37 @@
 /**
- * Layout para las pestañas principales
+ * Layout para las pestañas principales con transiciones animadas
  */
 
 import { Ionicons } from '@expo/vector-icons';
-import { Tabs, useRouter } from 'expo-router';
+import { Tabs } from 'expo-router';
 import React from 'react';
-import AppHeader from '../../src/components/layouts/AppHeader';
-import { colors } from '../../src/constants/colors';
+import { StatusBar } from 'react-native';
+import { useTheme } from '../../components/theme-provider';
+import { AnimatedTabBar } from '../../src/components/navigation/AnimatedTabBar';
+import { useFarmStore } from '../../src/stores/farmStore';
 
 export default function TabLayout() {
-  const router = useRouter();
+  const { isDark, colors: themeColors } = useTheme();
+  const { currentFarm, farms } = useFarmStore();
+  
+  // Ocultar tabs si no hay granja
+  const hasFarm = currentFarm !== null || farms.length > 0;
   
   return (
-    <Tabs
-        screenOptions={({ route }) => ({
-          header: () => {
-            if (route.name === 'index') {
-              return (
-                <AppHeader 
-                  showDrawer={true}
-                  showLogo={true}
-                  tintColor={colors.primary}
-                />
-              );
-            }
-            return undefined;
-          },
-          tabBarActiveTintColor: colors.primary,
-          tabBarInactiveTintColor: colors.lightGray,
-          tabBarStyle: {
-            backgroundColor: colors.white,
-            borderTopColor: colors.veryLightGray,
-          },
-          headerStyle: {
-            backgroundColor: colors.white,
-          },
-          headerTintColor: colors.primary,
-          headerTitleStyle: {
-            fontWeight: 'bold',
-          },
-        })}
+    <>
+      {/* Asegurar que el StatusBar sea visible */}
+      <StatusBar 
+        barStyle={isDark ? 'light-content' : 'dark-content'}
+        backgroundColor={themeColors.background.primary}
+        translucent={false}
+      />
+      
+      <Tabs
+        tabBar={hasFarm ? (props) => <AnimatedTabBar {...props} /> : () => null}
+        screenOptions={{
+          headerShown: false,
+          tabBarStyle: hasFarm ? {} : { display: 'none' },
+        }}
       >
         <Tabs.Screen
           name="index"
@@ -48,45 +40,16 @@ export default function TabLayout() {
             tabBarIcon: ({ color, size }) => (
               <Ionicons name="home" size={size} color={color} />
             ),
-            header: () => (
-              <AppHeader 
-                showDrawer={true}
-                showLogo={true}
-                tintColor={colors.primary}
-              />
-            ),
           }}
         />
         <Tabs.Screen
-          name="ponedoras"
+          name="mi-granja"
           options={{
             headerShown: false,
-            title: 'Ponedoras',
+            title: 'Mi Granja',
             tabBarIcon: ({ color, size }) => (
-              <Ionicons name="egg" size={size} color={color} />
+              <Ionicons name="business" size={size} color={color} />
             ),
-          }}
-        />
-        <Tabs.Screen
-          name="levantes"
-          options={{
-            headerShown: false,
-            title: 'Levantes',
-            tabBarIcon: ({ color, size }) => (
-              <Ionicons name="trending-up-outline" size={size} color={color} />
-            ),
-            headerTitle: 'Pollos Levantes',
-          }}
-        />
-        <Tabs.Screen
-          name="engorde"
-          options={{
-            headerShown: false,
-            title: 'Engorde',
-            tabBarIcon: ({ color, size }) => (
-              <Ionicons name="fast-food" size={size} color={color} />
-            ),
-            headerTitle: 'Pollos de Engorde',
           }}
         />
         <Tabs.Screen
@@ -97,7 +60,6 @@ export default function TabLayout() {
             tabBarIcon: ({ color, size }) => (
               <Ionicons name="cash" size={size} color={color} />
             ),
-            headerTitle: 'Gestión de Gastos',
           }}
         />
         <Tabs.Screen
@@ -108,7 +70,6 @@ export default function TabLayout() {
             tabBarIcon: ({ color, size }) => (
               <Ionicons name="storefront-outline" size={size} color={color} />
             ),
-            headerTitle: 'Sistema de Ventas',
           }}
         />
         <Tabs.Screen
@@ -126,6 +87,7 @@ export default function TabLayout() {
           name="settings"
           options={{
             href: null,
+            headerShown: false,
             title: 'Settings',
             tabBarIcon: ({ color, size }) => (
               <Ionicons name="settings" size={size} color={color} />
@@ -136,17 +98,14 @@ export default function TabLayout() {
           name="perfil"
           options={{
             href: null,
+            headerShown: false,
             title: 'Perfil',
             tabBarIcon: ({ color, size }) => (
               <Ionicons name="person-circle" size={size} color={color} />
             ),
-            headerShown: true,
-            headerTransparent: false,
-            contentStyle: {
-              backgroundColor: colors.white,
-            },
           }}
         />
       </Tabs>
+    </>
   );
 }

@@ -20,8 +20,14 @@ export * from './pesoRegistro';
 // Gastos y artículos
 export * from './gastos/articulo';
 export * from './gastos/gasto';
-// Usuario
+// Usuario y Account
+export * from './account';
 export * from './user';
+// Farm y Colaboradores
+export * from './collaborator';
+export * from './farm';
+// Suscripción
+export * from './subscription';
 // Base de lotes
 export * from './loteBase';
 // Notificaciones

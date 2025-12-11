@@ -8,13 +8,14 @@
  * - Pre-carga de productos más usados
  */
 
+import { useFarmStore } from '../stores/farmStore';
 import { EstadoLote, TipoAve } from '../types/enums';
-import { Producto, ProductoLoteCompleto, ProductoUnidades, ProductoHuevos, ProductoLibrasEngorde, TipoProducto, UnidadVentaHuevos } from '../types/facturacion';
-import { configService } from './config.service';
+import { Producto, ProductoHuevos, ProductoLibrasEngorde, ProductoLoteCompleto, ProductoUnidades, TipoProducto, UnidadVentaHuevos } from '../types/facturacion';
+import { getFarmConfig } from '../utils/farmConfig';
 import { obtenerLotesEngorde } from './engorde.service';
 import { obtenerLotesLevantes } from './levantes.service';
-import { obtenerLotesPonedoras, obtenerRegistrosHuevos } from './ponedoras.service';
 import { obtenerUltimoPesoLote } from './peso.service';
+import { obtenerLotesPonedoras, obtenerRegistrosHuevos } from './ponedoras.service';
 
 interface CacheEntry<T> {
   data: T;
@@ -275,7 +276,8 @@ class InventarioService {
 
   private async generateProductosHuevos(): Promise<ProductoHuevos[]> {
     try {
-      const config = configService.getConfig();
+      const { currentFarm } = useFarmStore.getState();
+      const config = getFarmConfig(currentFarm);
       const lotesPonedoras = await obtenerLotesPonedoras({ status: EstadoLote.ACTIVO });
       const productos: ProductoHuevos[] = [];
 
@@ -311,7 +313,7 @@ class InventarioService {
               descripcion: `${totalDisponible} huevos del ${fecha.toLocaleDateString('es-DO')}`,
               tipo: TipoProducto.HUEVOS,
               tipoAve: TipoAve.PONEDORA,
-              precioUnitario: config.precioHuevo,
+              precioUnitario: config.defaultEggPrice,
               unidadMedida: 'unidad',
               disponible: totalDisponible,
               tamano: 'MIXTO',
@@ -323,15 +325,15 @@ class InventarioService {
             });
 
             // Producto por cajas
-            const cantidadCajas = Math.floor(totalDisponible / config.cantidadHuevosPorCaja);
+            const cantidadCajas = Math.floor(totalDisponible / config.eggsPerBox);
             if (cantidadCajas > 0) {
               productos.push({
                 id: `huevos-cajas-${lote.id}-${fecha.getTime()}`,
                 nombre: `Cajas de Huevos - ${lote.nombre}`,
-                descripcion: `${cantidadCajas} cajas (${config.cantidadHuevosPorCaja} huevos/caja) del ${fecha.toLocaleDateString('es-DO')}`,
+                descripcion: `${cantidadCajas} cajas (${config.eggsPerBox} huevos/caja) del ${fecha.toLocaleDateString('es-DO')}`,
                 tipo: TipoProducto.HUEVOS,
                 tipoAve: TipoAve.PONEDORA,
-                precioUnitario: config.precioHuevo * config.cantidadHuevosPorCaja,
+                precioUnitario: config.defaultEggPrice * config.eggsPerBox,
                 unidadMedida: 'caja',
                 disponible: cantidadCajas,
                 tamano: 'MIXTO',
@@ -339,7 +341,7 @@ class InventarioService {
                 fechaRecoleccion: fecha,
                 loteId: lote.id,
                 unidadVenta: UnidadVentaHuevos.CAJAS,
-                cantidadPorCaja: config.cantidadHuevosPorCaja,
+                cantidadPorCaja: config.eggsPerBox,
                 registrosIds,
               });
             }
@@ -516,13 +518,13 @@ class InventarioService {
 
     switch (tipoAve) {
       case TipoAve.PONEDORA:
-        precioUnidad = config.precioUnidadIsraeli;
+        precioUnidad = config.defaultLevantePricePerUnit;
         break;
       case TipoAve.POLLO_LEVANTE:
-        precioUnidad = config.precioUnidadIsraeli * 0.8; // 20% menos que ponedoras
+        precioUnidad = config.defaultLevantePricePerUnit * 0.8; // 20% menos que ponedoras
         break;
       case TipoAve.POLLO_ENGORDE:
-        precioLibra = config.precioLibraEngorde || 80; // Precio por libra (default RD$80)
+        precioLibra = config.defaultChickenPricePerPound; // Precio por libra
         // Calcular precio por unidad basándose en el peso del último pesaje
         if (pesoPromedioLibras) {
           precioUnidad = pesoPromedioLibras * precioLibra;

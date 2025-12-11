@@ -1,364 +1,601 @@
 /**
- * Componente de header unificado para la aplicación
+ * Header moderno del Dashboard con farm switcher y controles avanzados
+ * Basado en DashboardHeader para mantener consistencia
  */
 
 import { Ionicons } from '@expo/vector-icons';
-import { DrawerToggleButton } from '@react-navigation/drawer';
 import { BlurView } from 'expo-blur';
-import { router } from 'expo-router';
+import { useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import React, { useEffect, useState } from 'react';
-import { ActivityIndicator, Image, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import React, { useEffect, useRef, useState } from 'react';
+import {
+  ActivityIndicator,
+  Animated,
+  Image,
+  Platform,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View
+} from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { colors } from '../../constants/colors';
+import { useTheme } from '../../../components/theme-provider';
+import { FarmSwitcher } from '../../components/dashboard/FarmSwitcher';
+import { borderRadius, shadows, spacing, typography } from '../../constants/designSystem';
 import { useNotifications } from '../../hooks/useNotifications';
-import { AlertSummary, getAlertSummaryFromStore } from '../../services/tracking-optimized.service';
 import { useAuthStore } from '../../stores/authStore';
-import { useEngordeStore } from '../../stores/engordeStore';
-import { useHuevosStore } from '../../stores/huevosStore';
-import { useLevantesStore } from '../../stores/levantesStore';
-import { usePesoStore } from '../../stores/pesoStore';
-import { usePonedorasStore } from '../../stores/ponedorasStore';
+import { useFarmStore } from '../../stores/farmStore';
+import { useMultiTenantAuthStore } from '../../stores/multiTenantAuthStore';
+import { useOrganizationStore } from '../../stores/organizationStore';
 import { NotificationIconBadge } from '../ui/NotificationBadge';
 
 interface AppHeaderProps {
-  title?: string;
-  showDrawer?: boolean;
+  isEditMode?: boolean;
+  onToggleEditMode?: () => void;
+  variant?: 'floating' | 'fixed';
+  enableBlur?: boolean;
+  showFarmSwitcher?: boolean;
+  showDate?: boolean;
   showBack?: boolean;
-  showProfile?: boolean;
-  showLogo?: boolean;
-  showNotifications?: boolean;
-  tintColor?: string;
-  backgroundColor?: string | 'transparent';
-  statusBarStyle?: 'auto' | 'inverted' | 'light' | 'dark';
   onBackPress?: () => void;
-  rightContent?: React.ReactNode;
-  primaryAction?: HeaderAction;
-  secondaryAction?: HeaderAction;
-}
-
-interface HeaderAction {
-  label: string;
-  onPress: () => void;
-  icon?: keyof typeof Ionicons.glyphMap;
-  loading?: boolean;
-  disabled?: boolean;
-  tintColor?: string;
+  showThemeToggle?: boolean;
+  showUserIcon?: boolean; // Mostrar icono de usuario
+  showNotificationsIcon?: boolean; // Mostrar icono de notificaciones
+  title?: string; // Deprecated: usar title1 y title2
+  title1?: string;
+  title2?: string;
+  showFarmButton?: boolean; // Botón grande con shed.png
+  showFarmSettings?: boolean; // Botón grande con settings.png
+  // Botón de editar/guardar genérico para formularios
+  showEditButton?: boolean; // Mostrar botón de editar/guardar
+  onSave?: () => void; // Callback cuando se presiona guardar
+  onCancel?: () => void; // Callback cuando se cancela (opcional)
+  isSaving?: boolean; // Estado de guardado para mostrar loading
 }
 
 export default function AppHeader({
-  title,
-  showDrawer = false,
+  isEditMode = false,
+  onToggleEditMode,
+  variant = 'fixed',
+  enableBlur = false,
+  showFarmSwitcher = true,
+  showDate = false,
   showBack = false,
-  showProfile = true,
-  showLogo = false,
-  showNotifications = true,
-  tintColor = colors.primary,
-  backgroundColor = 'transparent',
-  statusBarStyle = 'dark',
   onBackPress,
-  rightContent,
-  primaryAction,
-  secondaryAction
+  showThemeToggle = true,
+  showUserIcon = true,
+  showNotificationsIcon = true,
+  title,
+  title1,
+  title2,
+  showFarmButton = false,
+  showFarmSettings = false,
+  showEditButton = false,
+  onSave,
+  onCancel,
+  isSaving = false,
 }: AppHeaderProps) {
-  // Verificar autenticación
-  const { isAuthenticated, isLoading } = useAuthStore();
-  
-  // Solo usar hooks de notificaciones y stores si está autenticado
-  const notificationsHook = useNotifications();
-  const ponedorasStore = usePonedorasStore();
-  const levantesStore = useLevantesStore();
-  const engordeStore = useEngordeStore();
-  const pesoStore = usePesoStore();
-  const huevosStore = useHuevosStore();
-  
-  // Solo usar los datos si está autenticado
-  const unreadCount = isAuthenticated ? notificationsHook.unreadCount : 0;
-  const ponedorasLotes = isAuthenticated ? ponedorasStore.lotes : [];
-  const levantesLotes = isAuthenticated ? levantesStore.lotes : [];
-  const engordeLotes = isAuthenticated ? engordeStore.lotes : [];
-  const registrosPeso = isAuthenticated ? pesoStore.registrosPeso : [];
-  const registrosHuevos = isAuthenticated ? huevosStore.registrosHuevos : [];
-  
-  const [alertSummary, setAlertSummary] = useState<AlertSummary>({
-    totalAlertas: 0,
-    emergencias: 0,
-    advertencias: 0,
-    pesajeEmergencias: 0,
-    pesajeAdvertencias: 0,
-    recoleccionEmergencias: 0,
-    recoleccionAdvertencias: 0,
-  });
-
-  // Cargar resumen de alertas solo si está autenticado
-  useEffect(() => {
-    if (!isAuthenticated || isLoading) {
-      return;
-    }
-
-    const loadAlertSummary = () => {
-      try {
-        console.log('🔔 AppHeader: Calculando resumen de alertas desde stores');
-        console.log('🔔 Lotes:', { ponedoras: ponedorasLotes.length, levantes: levantesLotes.length, engorde: engordeLotes.length });
-        console.log('🔔 Registros:', { peso: registrosPeso.length, huevos: registrosHuevos.length });
-        
-        const summary = getAlertSummaryFromStore(
-          ponedorasLotes, 
-          levantesLotes, 
-          engordeLotes, 
-          registrosPeso, 
-          registrosHuevos
-        );
-        setAlertSummary(summary);
-        console.log('🔔 AppHeader: Resumen calculado:', summary);
-      } catch (error) {
-        console.error('Error al cargar resumen de alertas:', error);
-        // En caso de error, mantener valores por defecto
-        setAlertSummary({
-          totalAlertas: 0,
-          emergencias: 0,
-          advertencias: 0,
-          pesajeEmergencias: 0,
-          pesajeAdvertencias: 0,
-          recoleccionEmergencias: 0,
-          recoleccionAdvertencias: 0,
-        });
-      }
-    };
-
-    // Solo calcular si hay datos disponibles
-    if (ponedorasLotes.length > 0 || levantesLotes.length > 0 || engordeLotes.length > 0 || 
-        registrosPeso.length > 0 || registrosHuevos.length > 0) {
-      loadAlertSummary();
-    }
-  }, [isAuthenticated, isLoading, ponedorasLotes, levantesLotes, engordeLotes, registrosPeso, registrosHuevos]);
-
-  // Solo mostrar notificaciones reales de Firebase, no las alertas de tracking
-  const totalNotifications = isAuthenticated ? unreadCount : 0;
+  const { isDark, colors, toggleTheme } = useTheme();
+  const router = useRouter();
   const insets = useSafeAreaInsets();
   
-  return (
-    <>
-      <StatusBar style={statusBarStyle} />
-      <BlurView
-        intensity={80}
-        tint="light"
-        style={[
-          styles.headerContainer,
-          {
-            paddingTop: Math.max(insets.top, 8),
-          }
-        ]}
-      >
-        <View style={[
-          styles.header,
-          {
-            backgroundColor: 'rgba(255, 255, 255, 0.1)',
-          }
-        ]}>
-          {/* Botón izquierdo (drawer o back) */}
-          <View style={styles.leftContainer}>
-          {showDrawer && (
-            <DrawerToggleButton tintColor={tintColor} />
-          )}
-          
-          {showBack && (
-            <TouchableOpacity 
-              style={styles.backButton} 
-              onPress={onBackPress || (() => router.back())}
-              activeOpacity={0.7}
-            >
-              <Ionicons name="arrow-back" size={20} color={tintColor} />
-            </TouchableOpacity>
-          )}
-        </View>
-        
-        {/* Título o logo */}
-        <View style={styles.titleContainer}>
-        {showLogo ? (
-          <Image
-            source={require('../../../assets/images/full-logo.png')}
-            style={styles.logo}
-          />
-        ) : (
-          <Text style={[styles.title, { color: tintColor }]}>{title}</Text>
-        )}
-      </View>
-      
-      {/* Botón derecho (notificaciones, perfil o contenido personalizado) */}
-      <View style={styles.rightContainer}>
-        {rightContent ? (
-          rightContent
-        ) : (
-          <View style={styles.rightButtons}>
-            {secondaryAction && renderActionButton(secondaryAction, tintColor, 'secondary')}
-            {primaryAction && renderActionButton(primaryAction, tintColor, 'primary')}
-            {showNotifications && (
-              <TouchableOpacity 
-                style={styles.notificationButton}
-                onPress={() => router.push('/notifications')}
+  const { currentOrganization } = useOrganizationStore();
+  const { user } = useMultiTenantAuthStore();
+  const { isAuthenticated } = useAuthStore();
+  // Solo usar notificaciones si está autenticado
+  const notificationsHook = isAuthenticated ? useNotifications() : { unreadCount: 0 };
+  const unreadCount = notificationsHook.unreadCount;
+  const { currentFarm, farms } = useFarmStore();
+  const [showShedTooltip, setShowShedTooltip] = useState(true);
+  const fadeAnim = useRef(new Animated.Value(0)).current;
+  const slideAnim = useRef(new Animated.Value(-10)).current;
+
+  // Animación del tooltip
+  useEffect(() => {
+    if (showShedTooltip) {
+      // Animación de entrada
+      Animated.parallel([
+        Animated.timing(fadeAnim, {
+          toValue: 1,
+          duration: 400,
+          useNativeDriver: true,
+        }),
+        Animated.spring(slideAnim, {
+          toValue: 0,
+          tension: 50,
+          friction: 8,
+          useNativeDriver: true,
+        }),
+      ]).start();
+
+      // Ocultar después de 4 segundos
+      const timer = setTimeout(() => {
+        Animated.parallel([
+          Animated.timing(fadeAnim, {
+            toValue: 0,
+            duration: 300,
+            useNativeDriver: true,
+          }),
+          Animated.timing(slideAnim, {
+            toValue: -10,
+            duration: 300,
+            useNativeDriver: true,
+          }),
+        ]).start(() => {
+          setShowShedTooltip(false);
+        });
+      }, 4000);
+
+      return () => clearTimeout(timer);
+    }
+  }, [showShedTooltip]);
+
+  const organizationName = currentOrganization?.displayName || currentFarm?.name || 'Mi Granja';
+  const userName = user?.displayName || 'Usuario';
+
+  const topPadding = Math.max(insets.top, 8);
+  const negativeMarginTop = -insets.top; // Margen negativo para extender detrás del StatusBar
+
+  const renderContent = () => (
+    <View style={styles.content}>
+      {/* Información de Organización y Granja */}
+      <View style={styles.organizationInfo}>
+        {/* Farm Switcher o botón para crear granja */}
+        {showFarmSwitcher && (
+          <View style={styles.farmSwitcherContainer}>
+            {currentFarm ? (
+              <FarmSwitcher compact={true} showPlan={true} />
+            ) : (
+              <TouchableOpacity
+                style={[styles.createFarmButton, { backgroundColor: colors.primary[500] }]}
+                onPress={() => router.push('/(tabs)/mi-granja')}
+                activeOpacity={0.8}
               >
-                <NotificationIconBadge 
-                  count={totalNotifications}
-                  color={colors.danger}
-                >
-                  <Ionicons 
-                    name={totalNotifications > 0 ? "notifications" : "notifications-outline"} 
-                    size={20} 
-                    color={tintColor} 
-                  />
-                </NotificationIconBadge>
-              </TouchableOpacity>
-            )}
-            
-            {showProfile && (
-              <TouchableOpacity 
-                style={styles.profileButton}
-                onPress={() => router.push('/profile')}
-              >
-                <Ionicons name="person-circle" size={24} color={tintColor} />
+                <Ionicons name="add-circle" size={16} color={colors.text.inverse} />
+                <Text style={[styles.createFarmButtonText, { color: colors.text.inverse }]}>
+                  Crear Granja
+                </Text>
               </TouchableOpacity>
             )}
           </View>
         )}
+        
+        {/* Título y botón back en la misma fila */}
+        <View style={styles.titleRow}>
+          {showBack && (
+            <TouchableOpacity
+              style={styles.backButton}
+              onPress={() => {
+                if (onBackPress) {
+                  onBackPress();
+                } else {
+                  router.back();
+                }
+              }}
+              activeOpacity={0.7}
+            >
+              <Ionicons name="chevron-back" size={24} color={colors.text.primary} />
+            </TouchableOpacity>
+          )}
+          <View style={styles.titleContainer}>
+            {(title1 || title) && (
+              <Text style={[styles.welcomeText, { color: colors.text.primary }]}>
+                {title1 || title}
+              </Text>
+            )}
+            {title2 && (
+              <Text style={[styles.title2, { color: colors.primary[500] }]}>
+                {title2}
+              </Text>
+            )}
+            {showDate && (
+              <Text style={[styles.dateText, { color: colors.text.secondary }]}>
+                {new Date().toLocaleDateString('es-ES', {
+                  weekday: 'long',
+                  year: 'numeric',
+                  month: 'long',
+                  day: 'numeric',
+                })}
+              </Text>
+            )}
+          </View>
         </View>
+      </View>
+
+      {/* Acciones */}
+      <View style={styles.actions}>
+        <View style={styles.actionsTop}>
+          {showThemeToggle && (
+            <TouchableOpacity
+              style={[styles.actionButton, { backgroundColor: colors.background.tertiary }]}
+              onPress={toggleTheme}
+            >
+              <Ionicons
+                name={isDark ? 'sunny' : 'moon'}
+                size={18}
+                color={colors.text.primary}
+              />
+            </TouchableOpacity>
+          )}
+          
+          {/* Botón de editar para dashboard (reordenar componentes) */}
+          {!showEditButton && onToggleEditMode && (
+            <TouchableOpacity
+              style={[
+                styles.actionButton,
+                { backgroundColor: colors.background.tertiary },
+                isEditMode && { backgroundColor: colors.primary[500] }
+              ]}
+              onPress={onToggleEditMode}
+            >
+              <Ionicons
+                name={isEditMode ? 'checkmark' : 'create-outline'}
+                size={18}
+                color={isEditMode ? colors.text.inverse : colors.text.primary}
+              />
+            </TouchableOpacity>
+          )}
+
+          {showNotificationsIcon && (
+            <TouchableOpacity
+              style={[styles.actionButton, { backgroundColor: colors.background.tertiary }]}
+              onPress={() => router.push('/notifications')}
+            >
+              <NotificationIconBadge 
+                count={isAuthenticated ? unreadCount : 0}
+                color={colors.primary[500]}
+              >
+                <Ionicons 
+                  name={unreadCount > 0 ? "notifications" : "notifications-outline"} 
+                  size={18} 
+                  color={colors.text.primary} 
+                />
+              </NotificationIconBadge>
+            </TouchableOpacity>
+          )}
+
+          {showUserIcon && (
+            <TouchableOpacity
+              style={[styles.actionButton, { backgroundColor: colors.background.tertiary }]}
+              onPress={() => router.push('/(tabs)/settings/profile')}
+            >
+              <Ionicons name="person-circle-outline" size={18} color={colors.text.primary} />
+            </TouchableOpacity>
+          )}
         </View>
-      </BlurView>
+        
+        {/* Botones grandes con imágenes */}
+        <View style={styles.largeButtonsContainer}>
+          {showFarmButton && (
+            <View style={styles.largeButtonContainer}>
+              <TouchableOpacity
+                style={[styles.largeButton, { backgroundColor: colors.background.tertiary }]}
+                onPress={() => {
+                  setShowShedTooltip(false);
+                  router.push('/(tabs)/mi-granja');
+                }}
+              >
+                <Image 
+                  source={require('../../../assets/shed.png')} 
+                  style={styles.largeButtonIcon}
+                  resizeMode="contain"
+                />
+              </TouchableOpacity>
+              
+              {showShedTooltip && (
+                <Animated.View
+                  style={[
+                    styles.largeButtonTooltip,
+                    {
+                      backgroundColor: colors.primary[500],
+                      opacity: fadeAnim,
+                      transform: [{ translateX: slideAnim }],
+                    },
+                  ]}
+                  pointerEvents="none"
+                >
+                  <Text 
+                    style={[styles.largeButtonTooltipText, { color: colors.text.inverse }]}
+                  >
+                    Acceder a mi Granja
+                  </Text>
+                  <View style={[styles.largeButtonTooltipArrow, { borderRightColor: colors.primary[500] }]} />
+                </Animated.View>
+              )}
+            </View>
+          )}
+
+          {showFarmSettings && (
+            <TouchableOpacity
+              style={[styles.largeButton, { backgroundColor: colors.background.tertiary }]}
+              onPress={() => router.push('/(tabs)/settings')}
+            >
+              <Image 
+                source={require('../../../assets/settings.png')} 
+                style={styles.largeButtonIcon}
+                resizeMode="contain"
+              />
+            </TouchableOpacity>
+          )}
+
+          {/* Botón de editar/guardar genérico para formularios */}
+          {showEditButton && (
+            <>
+              {isEditMode ? (
+                <>
+                  {onCancel && (
+                    <TouchableOpacity
+                      style={[
+                        styles.editFormButtonIcon,
+                        {
+                          borderColor: colors.border.light,
+                          backgroundColor: 'transparent',
+                        }
+                      ]}
+                      onPress={onCancel}
+                      disabled={isSaving}
+                    >
+                      <Ionicons
+                        name="close"
+                        size={18}
+                        color={colors.text.secondary}
+                      />
+                    </TouchableOpacity>
+                  )}
+                  <TouchableOpacity
+                    style={[
+                      styles.editFormButtonIcon,
+                      {
+                        borderColor: colors.primary[500],
+                        backgroundColor: colors.primary[500],
+                      },
+                      isSaving && { opacity: 0.6 }
+                    ]}
+                    onPress={onSave}
+                    disabled={isSaving}
+                  >
+                    {isSaving ? (
+                      <ActivityIndicator size="small" color={colors.text.inverse} />
+                    ) : (
+                      <Ionicons
+                        name="checkmark"
+                        size={18}
+                        color={colors.text.inverse}
+                      />
+                    )}
+                  </TouchableOpacity>
+                </>
+              ) : (
+                <TouchableOpacity
+                  style={[
+                    styles.editFormButton,
+                    {
+                      borderColor: colors.primary[500],
+                      backgroundColor: 'transparent',
+                    }
+                  ]}
+                  onPress={onToggleEditMode}
+                >
+                  <Ionicons
+                    name="create-outline"
+                    size={16}
+                    color={colors.primary[500]}
+                  />
+                  <Text style={[styles.editFormButtonText, { color: colors.primary[500] }]}>
+                    Editar
+                  </Text>
+                </TouchableOpacity>
+              )}
+            </>
+          )}
+        </View>
+      </View>
+    </View>
+  );
+
+  if (variant === 'floating' && enableBlur) {
+    return (
+      <>
+        <StatusBar style={isDark ? 'light' : 'dark'} />
+        <BlurView
+          intensity={Platform.OS === 'ios' ? 100 : 80}
+          tint={isDark ? 'dark' : 'light'}
+          style={[
+            styles.container,
+            styles.floatingContainer,
+            { 
+              marginTop: negativeMarginTop,
+              paddingTop: topPadding 
+            }
+          ]}
+        >
+          {renderContent()}
+        </BlurView>
+      </>
+    );
+  }
+
+  return (
+    <>
+      <StatusBar style={isDark ? 'light' : 'dark'} />
+      <View style={[
+        styles.container, 
+        { 
+          backgroundColor: colors.background.primary, 
+          marginTop: negativeMarginTop,
+          paddingTop: topPadding 
+        }
+      ]}>
+        {renderContent()}
+      </View>
     </>
   );
 }
 
-const renderActionButton = (
-  action: HeaderAction,
-  fallbackTint: string,
-  variant: 'primary' | 'secondary'
-) => {
-  const backgroundColor = variant === 'primary'
-    ? action.tintColor || fallbackTint
-    : 'transparent';
-  const borderColor = variant === 'secondary' ? action.tintColor || fallbackTint : 'transparent';
-  const textColor = variant === 'primary' ? colors.white : action.tintColor || fallbackTint;
-
-  return (
-    <TouchableOpacity
-      key={action.label}
-      style={[
-        styles.actionButton,
-        {
-          backgroundColor,
-          borderColor,
-          borderWidth: variant === 'secondary' ? 1 : 0,
-        },
-        action.disabled ? styles.actionButtonDisabled : null,
-      ]}
-      onPress={action.onPress}
-      disabled={action.loading || action.disabled}
-      activeOpacity={0.85}
-    >
-      {action.loading ? (
-        <ActivityIndicator size="small" color={textColor} />
-      ) : (
-        <>
-          {action.icon && (
-            <Ionicons
-              name={action.icon}
-              size={16}
-              color={textColor}
-              style={styles.actionIcon}
-            />
-          )}
-          <Text style={[styles.actionButtonText, { color: textColor }]}>{action.label}</Text>
-        </>
-      )}
-    </TouchableOpacity>
-  );
-};
-
 const styles = StyleSheet.create({
-  headerContainer: {
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: 'rgba(0, 0, 0, 0.1)',
-    paddingBottom: 0,
+  container: {
+    width: '100%',
+    paddingHorizontal: spacing[4],
+    paddingBottom: spacing[3],
+    minHeight: 100, // Altura mínima para el header
+    borderBottomWidth: Platform.OS === 'ios' ? StyleSheet.hairlineWidth : 0.5,
+    borderBottomColor: 'rgba(0, 0, 0, 0.08)',
   },
-  header: {
+  floatingContainer: {
+    width: '100%',
+    borderRadius: 0, // Sin bordes redondeados para full width
+    borderBottomWidth: 0,
+    ...shadows.lg,
+  },
+  content: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+  },
+  
+  // Organization Info
+  organizationInfo: {
+    flex: 1,
+  },
+  farmSwitcherContainer: {
+    marginBottom: spacing[2],
+  },
+  titleRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    height: 48,
-    paddingHorizontal: 16,
-    paddingVertical: 0,
-  },
-  leftContainer: {
-    minWidth: 44,
-    alignItems: 'flex-start',
-    justifyContent: 'center',
-  },
-  backButton: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: 'rgba(0, 0, 0, 0.06)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginLeft: -4,
+    gap: spacing[2],
   },
   titleContainer: {
     flex: 1,
-    alignItems: 'center',
+    paddingTop: spacing[2],
+  },
+  welcomeText: {
+    fontSize: typography.sizes['2xl'],
+    fontWeight: typography.weights.bold as '700',
+    marginBottom: spacing[1],
+  },
+  title2: {
+    fontSize: typography.sizes['2xl'],
+    fontWeight: typography.weights.semibold as '600',
+  },
+  dateText: {
+    fontSize: typography.sizes.base,
+  },
+
+  // Actions
+  backButton: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
     justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: spacing[1],
   },
-  title: {
-    fontSize: 17,
-    fontWeight: '600',
-    letterSpacing: -0.3,
-    lineHeight: 20,
-  },
-  logo: {
-    width: 120,
-    height: 40,
-    resizeMode: 'contain',
-  },
-  rightContainer: {
-    minWidth: 44,
+  actions: {
+    flexDirection: 'column',
+    gap: spacing[2],
     alignItems: 'flex-end',
   },
-  rightButtons: {
+  actionsTop: {
     flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
+    gap: spacing[2],
   },
   actionButton: {
-    borderRadius: 20,
-    paddingHorizontal: 14,
-    paddingVertical: 8,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    justifyContent: 'center',
+    alignItems: 'center',
+    ...shadows.sm,
+  },
+  editFormButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
+    justifyContent: 'center',
+    paddingHorizontal: spacing[3],
+    paddingVertical: spacing[2],
+    borderRadius: borderRadius.md,
+    borderWidth: 2,
+    gap: spacing[1],
+    ...shadows.sm,
   },
-  actionButtonText: {
-    fontSize: 14,
-    fontWeight: '600',
+  editFormButtonText: {
+    fontSize: typography.sizes.sm,
+    fontWeight: typography.weights.semibold as '600',
   },
-  actionIcon: {
-    marginRight: 2,
-  },
-  actionButtonDisabled: {
-    opacity: 0.6,
-  },
-  notificationButton: {
+  editFormButtonIcon: {
     width: 36,
     height: 36,
     borderRadius: 18,
-    backgroundColor: 'rgba(0, 0, 0, 0.06)',
-    alignItems: 'center',
     justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 2,
+    ...shadows.sm,
   },
-  profileButton: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: 'rgba(0, 0, 0, 0.06)',
-    alignItems: 'center',
+  // Botones grandes con imágenes
+  largeButtonsContainer: {
+    flexDirection: 'row',
+    gap: spacing[2],
+    alignItems: 'flex-end',
+  },
+  largeButtonContainer: {
+    position: 'relative',
+  },
+  largeButton: {
+    width: 70,
+    height: 70,
+    borderRadius: borderRadius.lg,
     justifyContent: 'center',
+    alignItems: 'center',
+    ...shadows.sm,
+  },
+  largeButtonIcon: {
+    width: 50,
+    height: 50,
+  },
+  largeButtonTooltip: {
+    position: 'absolute',
+    right: 80,
+    top: '50%',
+    marginTop: -15,
+    paddingHorizontal: spacing[3],
+    paddingVertical: spacing[2],
+    borderRadius: borderRadius.md,
+    ...shadows.lg,
+    zIndex: 1000,
+    minWidth: 160,
+  },
+  largeButtonTooltipText: {
+    fontSize: typography.sizes.sm,
+    fontWeight: typography.weights.semibold as '600',
+    flexShrink: 0,
+    includeFontPadding: false,
+    textAlign: 'left',
+  },
+  largeButtonTooltipArrow: {
+    position: 'absolute',
+    right: -6,
+    top: '50%',
+    marginTop: -6,
+    width: 0,
+    height: 0,
+    borderTopWidth: 6,
+    borderBottomWidth: 6,
+    borderLeftWidth: 6,
+    borderTopColor: 'transparent',
+    borderBottomColor: 'transparent',
+  },
+  createFarmButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: spacing[3],
+    paddingVertical: spacing[2],
+    borderRadius: borderRadius.md,
+    gap: spacing[2],
+    ...shadows.sm,
+  },
+  createFarmButtonText: {
+    fontSize: typography.sizes.sm,
+    fontWeight: typography.weights.bold as '700',
   },
 });

@@ -1,57 +1,66 @@
 /**
- * Colores para la aplicación Asoaves
+ * Sistema de colores actualizado para Gallinapp
+ * Migrado del diseño anterior al nuevo sistema profesional
  */
 
 export const colors = {
-  // Colores principales
-  primary: '#0A3D62', // Azul oscuro del logo
-  secondary: '#3282B8', // Azul más claro
-  accent: '#BBE1FA', // Azul muy claro
-  accent2: '#0A3D62', // Azul oscuro del logo
-  accent3: '#3282B8', // Azul más claro
+  // Colores principales - Colores de la marca Gallinapp
+  primary: '#345DAD',      // Azul marca
+  secondary: '#35354C',    // Gris azulado oscuro marca
+  accent: '#E8EBF5',       // Azul muy claro
+  accent2: '#345DAD',      // Azul principal marca
+  accent3: '#5A75B8',      // Azul medio
 
-  // UI
-
-
-  
   // Colores para estados
-  success: '#2ECC71', // Verde
-  warning: '#F39C12', // Amarillo
-  danger: '#E74C3C', // Rojo
-  info: '#3498DB', // Azul
-  error: '#E74C3C', // Rojo
+  success: '#2E7D32',      // Verde éxito
+  warning: '#FF9800',      // Naranja advertencia  
+  danger: '#F44336',       // Rojo error
+  info: '#2196F3',         // Azul información
+  error: '#F44336',        // Rojo error
   
-  // Colores neutros
-  black: '#000000',
-  darkGray: '#333333',
-  mediumGray: '#666666',
-  lightGray: '#999999',
+  // Colores neutros - Actualizados con colores de la marca
+  black: '#13131C',
+  darkGray: '#35354C',     // Color secundario marca
+  mediumGray: '#7A7A7A',
+  lightGray: '#BFBFBF',    // Gris claro marca
   veryLightGray: '#E0E0E0',
   white: '#FFFFFF',
+  gray: '#9D9D9D',         // Para compatibilidad
+  lightBlue: '#E8EBF5',    // Azul claro basado en marca
   
-  // Colores para módulos específicos
-  ponedoras: '#1E8449', // Verde para módulo de ponedoras
-  israelies: '#E67E22', // Naranja para módulo de israelíes
-  engorde: '#9B59B6', // Morado para módulo de engorde
+  // Colores para módulos específicos - Adaptados a la marca
+  ponedoras: '#345DAD',    // Azul marca para ponedoras
+  israelies: '#5A75B8',    // Azul medio para israelíes/levante
+  engorde: '#778EC9',      // Azul claro para engorde
   
-  // Colores para gráficos
-  chart1: '#3498DB',
-  chart2: '#2ECC71',
-  chart3: '#F1C40F',
-  chart4: '#E74C3C',
-  chart5: '#9B59B6',
-  chart6: '#1ABC9C',
+  // Colores para gráficos - Adaptados a la marca
+  chart1: '#345DAD',       // Azul marca
+  chart2: '#5A75B8',       // Azul medio
+  chart3: '#35354C',       // Gris azulado marca
+  chart4: '#FF9800',       // Naranja advertencia
+  chart5: '#2196F3',       // Azul información
+  chart6: '#D2B48C',       // Color pollo
   
-  // Colores para fondos
-  background: '#F5F7FA',
-  backgroundLight: '#F5F7FA',
+  // Colores para fondos - Actualizados
+  background: '#FFFFFF',
+  backgroundLight: '#F4F6F8',
+  surface: '#F4F6F8',      // Para compatibilidad
   card: '#FFFFFF',
   
-  // Colores para texto
-  textDark: '#333333',
-  textMedium: '#666666',
-  textLight: '#999999',
+  // Colores para texto - Adaptados a la marca
+  text: '#35354C',         // Texto principal (gris azulado marca)
+  textDark: '#35354C',     // Texto oscuro marca
+  textMedium: '#7A7A7A',
+  textLight: '#BFBFBF',    // Gris claro marca
+  textSecondary: '#7A7A7A', // Para compatibilidad
   textWhite: '#FFFFFF',
+  border: '#BFBFBF',      // Borde con gris marca
+  
+  // Colores específicos del dominio avícola - Adaptados a la marca
+  poultryPrimary: '#345DAD',   // Azul marca
+  poultrySecondary: '#35354C',  // Gris azulado marca
+  eggColor: '#FFD700',          // Color huevo (dorado)
+  chickenColor: '#D2B48C',     // Color pollo
 };
 
 // Exportación para compatibilidad con el sistema de temas de Expo

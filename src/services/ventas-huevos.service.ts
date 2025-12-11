@@ -7,14 +7,14 @@
  * - Cálculo de disponibilidad por unidades y cajas
  */
 
-import { addDoc, collection, doc, getDocs, query, serverTimestamp, setDoc, where } from 'firebase/firestore';
+import { addDoc, collection, getDocs, query, serverTimestamp, where } from 'firebase/firestore';
 import { db } from '../components/config/firebase';
-import { AppConfig } from '../types/appConfig';
-import { ProductoHuevos, TipoProducto, UnidadVentaHuevos } from '../types/facturacion';
 import { TipoAve } from '../types/enums';
+import { ProductoHuevos, TipoProducto, UnidadVentaHuevos } from '../types/facturacion';
+import { Farm } from '../types/farm';
+import { getFarmConfig } from '../utils/farmConfig';
 import { getCurrentUserId } from './auth.service';
-import { obtenerLotesPonedoras } from './ponedoras.service';
-import { obtenerRegistrosProduccionPorLote } from './ponedoras.service';
+import { obtenerLotesPonedoras, obtenerRegistrosProduccionPorLote } from './ponedoras.service';
 
 const REGISTROS_COLLECTION = 'registrosPonedoras';
 const VENTAS_HUEVOS_COLLECTION = 'ventasHuevos';
@@ -97,8 +97,9 @@ export const obtenerRegistrosDisponiblesPorLote = async (
  * Retorna productos tanto por unidades como por cajas
  */
 export const generarProductosHuevosDesdeRegistros = async (
-  config: AppConfig
+  farm: Farm | null
 ): Promise<ProductoHuevos[]> => {
+  const config = getFarmConfig(farm);
   try {
     const productos: ProductoHuevos[] = [];
     
@@ -129,7 +130,7 @@ export const generarProductosHuevosDesdeRegistros = async (
           descripcion: `${totalDisponible} huevos disponibles del ${fechaRecoleccion.toLocaleDateString('es-DO')}`,
           tipo: TipoProducto.HUEVOS,
           tipoAve: TipoAve.PONEDORA,
-          precioUnitario: config.precioHuevo,
+          precioUnitario: config.defaultEggPrice,
           unidadMedida: 'unidad',
           disponible: totalDisponible,
           tamano: 'MIXTO', // Puede variar según el registro
@@ -143,7 +144,7 @@ export const generarProductosHuevosDesdeRegistros = async (
         productos.push(productoUnidades);
         
         // Producto por cajas
-        const cantidadCajas = Math.floor(totalDisponible / config.cantidadHuevosPorCaja);
+        const cantidadCajas = Math.floor(totalDisponible / config.eggsPerBox);
         if (cantidadCajas > 0) {
           const productoCajas: ProductoHuevos = {
             id: `huevos-cajas-${lote.id}-${fechaRecoleccion.getTime()}`,
@@ -159,7 +160,7 @@ export const generarProductosHuevosDesdeRegistros = async (
             fechaRecoleccion,
             loteId: lote.id,
             unidadVenta: UnidadVentaHuevos.CAJAS,
-            cantidadPorCaja: config.cantidadHuevosPorCaja,
+            cantidadPorCaja: config.eggsPerBox,
             registrosIds,
           };
           

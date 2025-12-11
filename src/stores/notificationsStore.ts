@@ -4,26 +4,26 @@
 
 import { create } from 'zustand';
 import {
-    archiveNotification,
-    cleanupExpiredNotifications,
-    createDefaultNotificationSettings,
-    createNotification,
-    deleteNotification,
-    getNotificationSettings,
-    getNotificationStats,
-    getUserNotifications,
-    markAsRead,
-    markMultipleAsRead,
-    subscribeToNotifications,
-    updateNotificationSettings,
+  archiveNotification,
+  cleanupExpiredNotifications,
+  createDefaultNotificationSettings,
+  createNotification,
+  deleteNotification,
+  getNotificationSettings,
+  getNotificationStats,
+  getUserNotifications,
+  markAsRead,
+  markMultipleAsRead,
+  subscribeToNotifications,
+  updateNotificationSettings,
 } from '../services/notifications.service';
 import {
-    CreateNotification,
-    Notification,
-    NotificationFilter,
-    NotificationSettings,
-    NotificationStats,
-    NotificationStatus,
+  CreateNotification,
+  Notification,
+  NotificationFilter,
+  NotificationSettings,
+  NotificationStats,
+  NotificationStatus,
 } from '../types/notification';
 
 interface NotificationsState {
@@ -47,6 +47,7 @@ interface NotificationsState {
   
   // Suscripción en tiempo real
   unsubscribeRealtime: (() => void) | null;
+  isInitialized: boolean; // Flag global para evitar múltiples inicializaciones
   
   // Acciones principales
   loadNotifications: (filter?: NotificationFilter) => Promise<void>;
@@ -103,6 +104,7 @@ export const useNotificationsStore = create<NotificationsState>((set, get) => ({
   currentFilter: null,
   hasMoreNotifications: true,
   unsubscribeRealtime: null,
+  isInitialized: false,
   
   // Cargar notificaciones
   loadNotifications: async (filter?: NotificationFilter) => {

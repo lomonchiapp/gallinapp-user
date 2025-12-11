@@ -28,7 +28,294 @@ service cloud.firestore {
       return str is string && str.size() > 0;
     }
     
-    // Lotes de Ponedoras
+    // Multi-tenant helper functions
+    function getUserOrganizations() {
+      return request.auth.token.organizations != null ? request.auth.token.organizations : [];
+    }
+    
+    function hasOrganizationAccess(organizationId) {
+      return isAuthenticated() && 
+             (organizationId in getUserOrganizations() || 
+              request.auth.token.super_admin == true);
+    }
+    
+    function hasOrganizationRole(organizationId, role) {
+      return hasOrganizationAccess(organizationId) &&
+             (getUserOrganizations()[organizationId].role == role ||
+              getUserOrganizations()[organizationId].role == 'admin' ||
+              request.auth.token.super_admin == true);
+    }
+    
+    function canManageOrganization(organizationId) {
+      return hasOrganizationRole(organizationId, 'admin') ||
+             hasOrganizationRole(organizationId, 'manager');
+    }
+    
+    function canViewOrganization(organizationId) {
+      return hasOrganizationAccess(organizationId);
+    }
+
+    // ==========================================================
+    // MULTI-TENANT COLLECTIONS
+    // ==========================================================
+    
+    // Organizations (tenants)
+    match /organizations/{orgId} {
+      allow read: if hasOrganizationAccess(orgId);
+      allow create: if isAuthenticated() && 
+                       request.resource.data.createdBy == request.auth.uid &&
+                       isValidString(request.resource.data.name);
+      allow update: if canManageOrganization(orgId) &&
+                       isValidString(request.resource.data.name);
+      allow delete: if hasOrganizationRole(orgId, 'admin');
+      
+      // Organization users and invitations
+      match /users/{userId} {
+        allow read: if hasOrganizationAccess(orgId);
+        allow create: if canManageOrganization(orgId) &&
+                         request.resource.data.role in ['admin', 'manager', 'operator'];
+        allow update: if canManageOrganization(orgId) &&
+                         request.resource.data.role in ['admin', 'manager', 'operator'];
+        allow delete: if hasOrganizationRole(orgId, 'admin');
+      }
+      
+      match /invitations/{invitationId} {
+        allow read: if hasOrganizationAccess(orgId) || 
+                       resource.data.email == request.auth.token.email;
+        allow create: if canManageOrganization(orgId) &&
+                         isValidString(request.resource.data.email) &&
+                         request.resource.data.role in ['admin', 'manager', 'operator'];
+        allow update: if hasOrganizationAccess(orgId) || 
+                         resource.data.email == request.auth.token.email;
+        allow delete: if canManageOrganization(orgId);
+      }
+      
+      // Organization-specific data
+      match /lotesPonedoras/{loteId} {
+        allow read: if canViewOrganization(orgId);
+        allow create: if hasOrganizationAccess(orgId) && 
+                         request.resource.data.createdBy == request.auth.uid &&
+                         isValidString(request.resource.data.nombre) &&
+                         isValidNumber(request.resource.data.cantidadInicial) &&
+                         isValidNumber(request.resource.data.cantidadActual) &&
+                         isValidDate(request.resource.data.fechaInicio) &&
+                         isValidDate(request.resource.data.fechaNacimiento);
+        allow update: if hasOrganizationAccess(orgId) && 
+                         isValidNumber(request.resource.data.cantidadActual) &&
+                         request.resource.data.cantidadActual <= resource.data.cantidadInicial;
+        allow delete: if canManageOrganization(orgId) && 
+                         resource.data.estado != 'VENDIDO';
+      }
+      
+      match /lotesLevantes/{loteId} {
+        allow read: if canViewOrganization(orgId);
+        allow create: if hasOrganizationAccess(orgId) && 
+                         request.resource.data.createdBy == request.auth.uid &&
+                         isValidString(request.resource.data.nombre) &&
+                         isValidNumber(request.resource.data.cantidadInicial) &&
+                         isValidNumber(request.resource.data.cantidadActual) &&
+                         isValidDate(request.resource.data.fechaInicio) &&
+                         isValidDate(request.resource.data.fechaNacimiento);
+        allow update: if hasOrganizationAccess(orgId) && 
+                         isValidNumber(request.resource.data.cantidadActual) &&
+                         request.resource.data.cantidadActual <= resource.data.cantidadInicial;
+        allow delete: if canManageOrganization(orgId) && 
+                         resource.data.estado != 'VENDIDO';
+      }
+      
+      match /lotesEngorde/{loteId} {
+        allow read: if canViewOrganization(orgId);
+        allow create: if hasOrganizationAccess(orgId) && 
+                         request.resource.data.createdBy == request.auth.uid &&
+                         isValidString(request.resource.data.nombre) &&
+                         isValidNumber(request.resource.data.cantidadInicial) &&
+                         isValidNumber(request.resource.data.cantidadActual) &&
+                         isValidDate(request.resource.data.fechaInicio) &&
+                         isValidDate(request.resource.data.fechaNacimiento);
+        allow update: if hasOrganizationAccess(orgId) && 
+                         isValidNumber(request.resource.data.cantidadActual) &&
+                         request.resource.data.cantidadActual <= resource.data.cantidadInicial;
+        allow delete: if canManageOrganization(orgId) && 
+                         resource.data.estado != 'VENDIDO';
+      }
+      
+      match /facturas/{facturaId} {
+        allow read: if canViewOrganization(orgId);
+        allow create: if hasOrganizationAccess(orgId) && 
+                         request.resource.data.createdBy == request.auth.uid &&
+                         isValidString(request.resource.data.numero) &&
+                         isValidNumber(request.resource.data.total) &&
+                         isValidDate(request.resource.data.fecha) &&
+                         request.resource.data.estado in ['PENDIENTE', 'PAGADA', 'CANCELADA'];
+        allow update: if hasOrganizationAccess(orgId) && 
+                         // No permitir cambiar estado a CANCELADA si ya está PAGADA
+                         !(resource.data.estado == 'PAGADA' && request.resource.data.estado == 'CANCELADA') &&
+                         // No permitir cambiar total después de creada
+                         request.resource.data.total == resource.data.total &&
+                         // No permitir cambiar items después de creada
+                         request.resource.data.items == resource.data.items;
+        allow delete: if false; // Nunca eliminar facturas
+      }
+      
+      match /ventas/{ventaId} {
+        allow read: if canViewOrganization(orgId);
+        allow create: if hasOrganizationAccess(orgId) && 
+                         request.resource.data.createdBy == request.auth.uid &&
+                         isValidString(request.resource.data.loteId) &&
+                         isValidNumber(request.resource.data.cantidad) &&
+                         isValidNumber(request.resource.data.total) &&
+                         isValidDate(request.resource.data.fecha);
+        allow update: if false; // Las ventas no se modifican
+        allow delete: if false; // Las ventas no se eliminan
+      }
+      
+      match /clientes/{clienteId} {
+        allow read: if canViewOrganization(orgId);
+        allow create: if hasOrganizationAccess(orgId) && 
+                         request.resource.data.createdBy == request.auth.uid &&
+                         isValidString(request.resource.data.nombre) &&
+                         isValidString(request.resource.data.email);
+        allow update: if hasOrganizationAccess(orgId) && 
+                         isValidString(request.resource.data.nombre) &&
+                         isValidString(request.resource.data.email);
+        allow delete: if canManageOrganization(orgId);
+      }
+      
+      match /gastos/{gastoId} {
+        allow read: if canViewOrganization(orgId);
+        allow create: if hasOrganizationAccess(orgId) && 
+                         request.resource.data.createdBy == request.auth.uid &&
+                         isValidString(request.resource.data.articuloNombre) &&
+                         isValidNumber(request.resource.data.monto) &&
+                         isValidDate(request.resource.data.fecha);
+        allow update: if hasOrganizationAccess(orgId) && 
+                         isValidNumber(request.resource.data.monto);
+        allow delete: if canManageOrganization(orgId);
+      }
+      
+      match /mortalidad/{mortalidadId} {
+        allow read: if canViewOrganization(orgId);
+        allow create: if hasOrganizationAccess(orgId) && 
+                         request.resource.data.createdBy == request.auth.uid &&
+                         isValidString(request.resource.data.loteId) &&
+                         isValidNumber(request.resource.data.cantidad) &&
+                         isValidDate(request.resource.data.fecha);
+        allow update: if hasOrganizationAccess(orgId) && 
+                         isValidNumber(request.resource.data.cantidad);
+        allow delete: if canManageOrganization(orgId);
+      }
+      
+      match /registrosPeso/{pesoId} {
+        allow read: if canViewOrganization(orgId);
+        allow create: if hasOrganizationAccess(orgId) && 
+                         request.resource.data.createdBy == request.auth.uid &&
+                         isValidString(request.resource.data.loteId) &&
+                         isValidNumber(request.resource.data.pesoPromedio) &&
+                         isValidDate(request.resource.data.fecha);
+        allow update: if hasOrganizationAccess(orgId) && 
+                         isValidNumber(request.resource.data.pesoPromedio);
+        allow delete: if canManageOrganization(orgId);
+      }
+      
+      match /galpones/{galponId} {
+        allow read: if canViewOrganization(orgId);
+        allow create: if hasOrganizationAccess(orgId) && 
+                         request.resource.data.createdBy == request.auth.uid &&
+                         isValidString(request.resource.data.nombre);
+        allow update: if hasOrganizationAccess(orgId) && 
+                         isValidString(request.resource.data.nombre);
+        allow delete: if canManageOrganization(orgId);
+      }
+      
+      match /configuracion_facturacion/{docId} {
+        allow read: if canViewOrganization(orgId);
+        allow create: if hasOrganizationAccess(orgId) && 
+                         isValidString(request.resource.data.empresa.nombre);
+        allow update: if hasOrganizationAccess(orgId) && 
+                         isValidString(request.resource.data.empresa.nombre);
+        allow delete: if false; // No eliminar configuración
+      }
+      
+      match /contador_facturas/{docId} {
+        allow read: if canViewOrganization(orgId);
+        allow create: if hasOrganizationAccess(orgId) && 
+                         isValidNumber(request.resource.data.siguienteNumero);
+        allow update: if hasOrganizationAccess(orgId) && 
+                         isValidNumber(request.resource.data.siguienteNumero);
+        allow delete: if false; // No eliminar contador
+      }
+      
+      match /contador_ventas/{docId} {
+        allow read: if canViewOrganization(orgId);
+        allow create: if hasOrganizationAccess(orgId) && 
+                         isValidNumber(request.resource.data.siguienteNumero);
+        allow update: if hasOrganizationAccess(orgId) && 
+                         isValidNumber(request.resource.data.siguienteNumero);
+        allow delete: if false; // No eliminar contador
+      }
+      
+      match /audit_log/{auditId} {
+        allow read: if canViewOrganization(orgId);
+        allow create: if hasOrganizationAccess(orgId);
+        allow update: if false; // No modificar audit log
+        allow delete: if false; // No eliminar audit log
+      }
+      
+      match /metricasReferencia/{docId} {
+        allow read: if canViewOrganization(orgId);
+        allow create: if hasOrganizationAccess(orgId);
+        allow update: if hasOrganizationAccess(orgId);
+        allow delete: if false; // No eliminar métricas
+      }
+      
+      match /notifications/{notificationId} {
+        allow read: if canViewOrganization(orgId) && 
+                       resource.data.userId == request.auth.uid;
+        allow create: if hasOrganizationAccess(orgId) && 
+                         request.resource.data.userId == request.auth.uid;
+        allow update: if hasOrganizationAccess(orgId) && 
+                         resource.data.userId == request.auth.uid &&
+                         // Solo permitir marcar como leída
+                         request.resource.data.read == true &&
+                         resource.data.read == false;
+        allow delete: if hasOrganizationAccess(orgId) && 
+                         resource.data.userId == request.auth.uid;
+      }
+      
+      match /appConfig/{docId} {
+        allow read: if canViewOrganization(orgId);
+        allow create: if hasOrganizationAccess(orgId);
+        allow update: if hasOrganizationAccess(orgId);
+        allow delete: if false; // No eliminar configuración
+      }
+      
+      match /subscriptions/{subscriptionId} {
+        allow read: if canViewOrganization(orgId);
+        allow create: if canManageOrganization(orgId);
+        allow update: if canManageOrganization(orgId);
+        allow delete: if hasOrganizationRole(orgId, 'admin');
+      }
+    }
+
+    // ==========================================================
+    // GLOBAL USER DATA (single tenant, backwards compatibility)
+    // ==========================================================
+    
+    // User profiles and global settings
+    // User profiles (global, not tenant-specific)
+    match /users/{userId} {
+      allow read: if isAuthenticated() && userId == request.auth.uid;
+      allow create: if isAuthenticated() && userId == request.auth.uid &&
+                       isValidString(request.resource.data.email) &&
+                       isValidString(request.resource.data.displayName);
+      allow update: if isAuthenticated() && userId == request.auth.uid &&
+                       isValidString(request.resource.data.displayName);
+      allow delete: if false; // Users can't delete themselves
+    }
+    
+    // BACKWARDS COMPATIBILITY: Old single-tenant collections
+    // These rules maintain access for existing single-tenant data
+    
     match /lotesPonedoras/{loteId} {
       allow read: if isAuthenticated() && 
                      resource.data.createdBy == request.auth.uid;
@@ -48,7 +335,6 @@ service cloud.firestore {
                        resource.data.estado != 'VENDIDO';
     }
     
-    // Lotes de Levantes
     match /lotesLevantes/{loteId} {
       allow read: if isAuthenticated() && 
                      resource.data.createdBy == request.auth.uid;
@@ -68,7 +354,6 @@ service cloud.firestore {
                        resource.data.estado != 'VENDIDO';
     }
     
-    // Lotes de Engorde
     match /lotesEngorde/{loteId} {
       allow read: if isAuthenticated() && 
                      resource.data.createdBy == request.auth.uid;
@@ -88,7 +373,6 @@ service cloud.firestore {
                        resource.data.estado != 'VENDIDO';
     }
     
-    // Facturas
     match /facturas/{facturaId} {
       allow read: if isAuthenticated() && 
                      resource.data.createdBy == request.auth.uid;
@@ -100,16 +384,12 @@ service cloud.firestore {
                        request.resource.data.estado in ['PENDIENTE', 'PAGADA', 'CANCELADA'];
       allow update: if isAuthenticated() && 
                        resource.data.createdBy == request.auth.uid &&
-                       // No permitir cambiar estado a CANCELADA si ya está PAGADA
                        !(resource.data.estado == 'PAGADA' && request.resource.data.estado == 'CANCELADA') &&
-                       // No permitir cambiar total después de creada
                        request.resource.data.total == resource.data.total &&
-                       // No permitir cambiar items después de creada
                        request.resource.data.items == resource.data.items;
-      allow delete: if false; // Nunca eliminar facturas
+      allow delete: if false;
     }
     
-    // Clientes
     match /clientes/{clienteId} {
       allow read: if isAuthenticated() && 
                      resource.data.createdBy == request.auth.uid;
@@ -125,7 +405,6 @@ service cloud.firestore {
                        resource.data.createdBy == request.auth.uid;
     }
     
-    // Ventas
     match /ventas/{ventaId} {
       allow read: if isAuthenticated() && 
                      resource.data.createdBy == request.auth.uid;
@@ -135,11 +414,10 @@ service cloud.firestore {
                        isValidNumber(request.resource.data.cantidad) &&
                        isValidNumber(request.resource.data.total) &&
                        isValidDate(request.resource.data.fecha);
-      allow update: if false; // Las ventas no se modifican
-      allow delete: if false; // Las ventas no se eliminan
+      allow update: if false;
+      allow delete: if false;
     }
     
-    // Gastos
     match /gastos/{gastoId} {
       allow read: if isAuthenticated() && 
                      resource.data.createdBy == request.auth.uid;
@@ -155,7 +433,6 @@ service cloud.firestore {
                        resource.data.createdBy == request.auth.uid;
     }
     
-    // Mortalidad
     match /mortalidad/{mortalidadId} {
       allow read: if isAuthenticated() && 
                      resource.data.createdBy == request.auth.uid;
@@ -171,7 +448,6 @@ service cloud.firestore {
                        resource.data.createdBy == request.auth.uid;
     }
     
-    // Registros de Peso
     match /registrosPeso/{pesoId} {
       allow read: if isAuthenticated() && 
                      resource.data.createdBy == request.auth.uid;
@@ -187,7 +463,6 @@ service cloud.firestore {
                        resource.data.createdBy == request.auth.uid;
     }
     
-    // Configuración de Facturación
     match /configuracion_facturacion/{userId} {
       allow read: if isAuthenticated() && 
                      resource.id == request.auth.uid;
@@ -197,10 +472,9 @@ service cloud.firestore {
       allow update: if isAuthenticated() && 
                        resource.id == request.auth.uid &&
                        isValidString(request.resource.data.empresa.nombre);
-      allow delete: if false; // No eliminar configuración
+      allow delete: if false;
     }
     
-    // Contador de Facturas
     match /contador_facturas/{userId} {
       allow read: if isAuthenticated() && 
                      resource.id == request.auth.uid;
@@ -210,20 +484,18 @@ service cloud.firestore {
       allow update: if isAuthenticated() && 
                        resource.id == request.auth.uid &&
                        isValidNumber(request.resource.data.siguienteNumero);
-      allow delete: if false; // No eliminar contador
+      allow delete: if false;
     }
     
-    // Audit Log
     match /audit_log/{auditId} {
       allow read: if isAuthenticated() && 
                      resource.data.userId == request.auth.uid;
       allow create: if isAuthenticated() && 
                        request.resource.data.userId == request.auth.uid;
-      allow update: if false; // No modificar audit log
-      allow delete: if false; // No eliminar audit log
+      allow update: if false;
+      allow delete: if false;
     }
     
-    // Configuración de Métricas
     match /metricasReferencia/{userId} {
       allow read: if isAuthenticated() && 
                      resource.id == request.auth.uid;
@@ -231,10 +503,9 @@ service cloud.firestore {
                        request.resource.id == request.auth.uid;
       allow update: if isAuthenticated() && 
                        resource.id == request.auth.uid;
-      allow delete: if false; // No eliminar métricas
+      allow delete: if false;
     }
     
-    // Notificaciones
     match /notifications/{notificationId} {
       allow read: if isAuthenticated() && 
                      resource.data.userId == request.auth.uid;
@@ -242,14 +513,12 @@ service cloud.firestore {
                        request.resource.data.userId == request.auth.uid;
       allow update: if isAuthenticated() && 
                        resource.data.userId == request.auth.uid &&
-                       // Solo permitir marcar como leída
                        request.resource.data.read == true &&
                        resource.data.read == false;
       allow delete: if isAuthenticated() && 
                        resource.data.userId == request.auth.uid;
     }
     
-    // Galpones
     match /galpones/{galponId} {
       allow read: if isAuthenticated() && 
                      resource.data.createdBy == request.auth.uid;
@@ -263,7 +532,6 @@ service cloud.firestore {
                        resource.data.createdBy == request.auth.uid;
     }
     
-    // Configuración de App
     match /appConfig/{userId} {
       allow read: if isAuthenticated() && 
                      resource.id == request.auth.uid;
@@ -271,7 +539,7 @@ service cloud.firestore {
                        request.resource.id == request.auth.uid;
       allow update: if isAuthenticated() && 
                        resource.id == request.auth.uid;
-      allow delete: if false; // No eliminar configuración
+      allow delete: if false;
     }
     
     // Denegar acceso a cualquier otra colección

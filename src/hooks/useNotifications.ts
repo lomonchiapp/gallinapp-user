@@ -3,15 +3,15 @@
  * Facilita el uso del sistema de notificaciones en otros hooks y componentes
  */
 
-import { useCallback, useEffect } from 'react';
+import React, { useCallback, useEffect } from 'react';
 import { cleanupDuplicateNotifications, NotificationTemplates } from '../services/notifications.service';
 import { useAuthStore } from '../stores/authStore';
 import { useNotificationsStore } from '../stores/notificationsStore';
 import {
-    CreateNotification,
-    NotificationCategory,
-    NotificationPriority,
-    NotificationType,
+  CreateNotification,
+  NotificationCategory,
+  NotificationPriority,
+  NotificationType,
 } from '../types/notification';
 
 export const useNotifications = () => {
@@ -22,6 +22,7 @@ export const useNotifications = () => {
     settings,
     isLoading,
     error,
+    isInitialized,
     createNewNotification,
     loadNotifications,
     loadSettings,
@@ -30,46 +31,75 @@ export const useNotifications = () => {
     stopRealtimeUpdates,
   } = useNotificationsStore();
 
-  // Inicializar notificaciones solo si está autenticado
+  const cleanupIntervalRef = React.useRef<NodeJS.Timeout | null>(null);
+  
   useEffect(() => {
+    // Limpiar intervalo anterior si existe
+    if (cleanupIntervalRef.current) {
+      clearInterval(cleanupIntervalRef.current);
+      cleanupIntervalRef.current = null;
+    }
+
     if (!isAuthenticated || authLoading) {
+      if (isInitialized) {
+        console.log('🔔 useNotifications: Limpiando para usuario no autenticado');
+        useNotificationsStore.setState({ isInitialized: false });
+        stopRealtimeUpdates();
+      }
+      return;
+    }
+
+    // Evitar múltiples inicializaciones usando estado global
+    if (isInitialized) {
       return;
     }
 
     console.log('🔔 useNotifications: Inicializando para usuario autenticado');
+    useNotificationsStore.setState({ isInitialized: true });
     
     const initializeNotifications = async () => {
       try {
-        // Ejecutar limpieza de duplicados al inicio
-        console.log('🧹 useNotifications: Iniciando limpieza de notificaciones duplicadas...');
-        await cleanupDuplicateNotifications();
+        // Ejecutar limpieza de duplicados al inicio (solo una vez)
+        if (!cleanupIntervalRef.current) {
+          console.log('🧹 useNotifications: Iniciando limpieza de notificaciones duplicadas...');
+          await cleanupDuplicateNotifications();
+        }
         
         await loadNotifications();
         await loadSettings();
         startRealtimeUpdates();
+        
+        // Programar limpieza automática cada 24 horas (solo una vez)
+        if (!cleanupIntervalRef.current) {
+          cleanupIntervalRef.current = setInterval(async () => {
+            try {
+              console.log('🧹 useNotifications: Limpieza automática programada de notificaciones...');
+              await cleanupDuplicateNotifications();
+            } catch (error) {
+              console.error('🔔 Error en limpieza automática:', error);
+            }
+          }, 24 * 60 * 60 * 1000); // 24 horas
+        }
       } catch (error) {
         console.error('🔔 Error inicializando notificaciones:', error);
+        useNotificationsStore.setState({ isInitialized: false });
       }
     };
 
     initializeNotifications();
-    
-    // Programar limpieza automática cada 24 horas
-    const cleanupInterval = setInterval(async () => {
-      try {
-        console.log('🧹 useNotifications: Limpieza automática programada de notificaciones...');
-        await cleanupDuplicateNotifications();
-      } catch (error) {
-        console.error('🔔 Error en limpieza automática:', error);
-      }
-    }, 24 * 60 * 60 * 1000); // 24 horas
 
     return () => {
-      console.log('🔔 useNotifications: Limpiando para usuario no autenticado');
-      stopRealtimeUpdates();
-      clearInterval(cleanupInterval);
+      if (!isAuthenticated) {
+        console.log('🔔 useNotifications: Limpiando para usuario no autenticado');
+        useNotificationsStore.setState({ isInitialized: false });
+        stopRealtimeUpdates();
+        if (cleanupIntervalRef.current) {
+          clearInterval(cleanupIntervalRef.current);
+          cleanupIntervalRef.current = null;
+        }
+      }
     };
-  }, [isAuthenticated, authLoading]);
+  }, [isAuthenticated, authLoading, isInitialized]); // Depende de isInitialized también
 
   // Crear notificación personalizada
   const createNotification = useCallback(async (

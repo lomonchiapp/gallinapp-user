@@ -18,9 +18,19 @@ export interface AppUser {
   uid: string;
   email: string;
   displayName: string;
-  role: UserRole;
+  role: UserRole; // Global role (for backwards compatibility)
   lastLogin: Date;
   createdAt: Date;
+  
+  // Multi-tenant fields
+  currentOrganizationId?: string;
+  organizations?: {
+    [organizationId: string]: {
+      role: string;
+      joinedAt: Date;
+      isActive: boolean;
+    };
+  };
 }
 
 /**

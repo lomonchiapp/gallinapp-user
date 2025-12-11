@@ -2,7 +2,8 @@
  * Servicio para cálculos financieros y estadísticas de ganancias
  */
 
-import { AppConfig } from '../types/appConfig';
+import { Farm } from '../types/farm';
+import { getFarmConfig } from '../utils/farmConfig';
 import { obtenerEstadisticasGastos } from './gastos.service';
 import { obtenerRegistrosMortalidad } from './mortality.service';
 import { obtenerRegistrosHuevos } from './ponedoras.service';
@@ -71,12 +72,14 @@ export interface EstadisticasLote {
  * Calcular estadísticas financieras generales
  */
 export const calcularEstadisticasFinancieras = async (
-  config: AppConfig,
+  farm: Farm | null,
   lotesPonedoras: any[],
   lotesEngorde: any[],
   lotesIsraelies: any[]
 ): Promise<EstadisticasFinancieras> => {
   try {
+    const config = getFarmConfig(farm);
+    
     // Calcular ingresos de ponedoras
     let ingresosPonedoras = 0;
     let huevosTotales = 0;
@@ -85,7 +88,7 @@ export const calcularEstadisticasFinancieras = async (
       const registrosHuevos = await obtenerRegistrosHuevos(lote.id);
       const huevosLote = registrosHuevos.reduce((total, registro) => total + registro.cantidad, 0);
       huevosTotales += huevosLote;
-      ingresosPonedoras += huevosLote * config.precioHuevo;
+      ingresosPonedoras += huevosLote * config.defaultEggPrice;
     }
     
     // Calcular ingresos de engorde basado en peso estimado y precio por libra
@@ -94,14 +97,14 @@ export const calcularEstadisticasFinancieras = async (
       // Calcular peso total estimado del lote (peso promedio * cantidad actual)
       const pesoPromedioLbs = lote.pesoPromedio || 0; // Ya está en libras
       const pesoTotalEstimado = pesoPromedioLbs * lote.cantidadActual;
-      ingresosEngorde += pesoTotalEstimado * config.precioLibraEngorde;
+      ingresosEngorde += pesoTotalEstimado * config.defaultChickenPricePerPound;
     }
     
     // Calcular ingresos potenciales de levantes (israelíes) basado en precio unitario
     let ingresosIsraelies = 0;
     for (const lote of lotesIsraelies) {
       // Los levantes se venden por unidad completa
-      ingresosIsraelies += lote.cantidadActual * config.precioUnidadIsraeli;
+      ingresosIsraelies += lote.cantidadActual * config.defaultLevantePricePerUnit;
     }
     
     const ingresosTotal = ingresosPonedoras + ingresosEngorde + ingresosIsraelies;

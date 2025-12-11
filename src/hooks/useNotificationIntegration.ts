@@ -5,13 +5,14 @@
 
 import { useCallback, useEffect } from 'react';
 import { getEggTrackingInfo, getWeightTrackingInfo } from '../services/tracking.service';
-import { useAppConfigStore } from '../stores/appConfigStore';
 import { useAuthStore } from '../stores/authStore';
 import { useEngordeStore } from '../stores/engordeStore';
+import { useFarmStore } from '../stores/farmStore';
 import { useLevantesStore } from '../stores/levantesStore';
 import { useMortalityStore } from '../stores/mortalityStore';
 import { usePonedorasStore } from '../stores/ponedorasStore';
 import { TipoAve } from '../types/enums';
+import { getFarmConfig } from '../utils/farmConfig';
 import { useNotifications } from './useNotifications';
 
 /**
@@ -27,14 +28,14 @@ export const useNotificationIntegration = () => {
   const levantesStore = useLevantesStore();
   const engordeStore = useEngordeStore();
   const mortalityStore = useMortalityStore();
-  const appConfigStore = useAppConfigStore();
+  const { currentFarm } = useFarmStore();
 
   // Solo usar los datos si está autenticado
   const ponedorasLotes = isAuthenticated ? ponedorasStore.lotes : [];
   const levantesLotes = isAuthenticated ? levantesStore.lotes : [];
   const engordeLotes = isAuthenticated ? engordeStore.lotes : [];
   const registrosMortalidadGlobal = isAuthenticated ? mortalityStore.registrosMortalidadGlobal : [];
-  const config = isAuthenticated ? appConfigStore.config : null;
+  const config = isAuthenticated && currentFarm ? getFarmConfig(currentFarm) : null;
 
   // Verificar mortalidad alta
   const checkHighMortality = useCallback(async () => {
@@ -52,7 +53,7 @@ export const useNotificationIntegration = () => {
       const tasaMortalidad = (totalMuertes / lote.cantidadInicial) * 100;
 
       // Si la mortalidad supera el umbral aceptable
-      if (tasaMortalidad > config.tasaMortalidadAceptable) {
+      if (config && tasaMortalidad > config.acceptableMortalityRate) {
         await production.mortalidadAlta(lote.id, lote.nombre, tasaMortalidad);
       }
     }
@@ -74,12 +75,12 @@ export const useNotificationIntegration = () => {
       // Esto es un ejemplo, necesitarías obtener los registros de peso reales
       const pesoActual = 4.5; // Ejemplo
       
-      if (pesoActual >= config.pesoObjetivoEngorde) {
+      if (config && pesoActual >= config.targetEngordeWeight) {
         await production.pesoObjetivo(
           lote.id,
           lote.nombre,
           pesoActual,
-          config.pesoObjetivoEngorde
+          config.targetEngordeWeight
         );
       }
     }

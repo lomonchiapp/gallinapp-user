@@ -2,9 +2,10 @@
  * Servicio de Alertas que respeta la configuración de notificaciones
  */
 
-import { Alert, Platform } from 'react-native';
 import * as Haptics from 'expo-haptics';
-import { obtenerConfiguracionSync } from '../services/appConfig.service';
+import { Alert, Platform } from 'react-native';
+import { useFarmStore } from '../stores/farmStore';
+import { getFarmConfig } from '../utils/farmConfig';
 
 type AlertButton = {
   text?: string;
@@ -24,7 +25,9 @@ interface AlertOptions {
  * Muestra una alerta respetando la configuración de notificaciones
  */
 export const showAlert = (options: AlertOptions): void => {
-  const config = obtenerConfiguracionSync();
+  // Obtener configuración de notificaciones desde la granja actual
+  const { currentFarm } = useFarmStore.getState();
+  const config = getFarmConfig(currentFarm);
   
   // Valores por defecto si no hay configuración
   const defaultNotificaciones = {
@@ -36,7 +39,7 @@ export const showAlert = (options: AlertOptions): void => {
     vibrarEnAlertas: true,
   };
   
-  const notificaciones = config?.notificaciones || defaultNotificaciones;
+  const notificaciones = config.notifications || defaultNotificaciones;
 
   // Si las alertas están deshabilitadas, no mostrar nada
   if (!notificaciones.alertasHabilitadas) {

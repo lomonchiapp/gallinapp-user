@@ -8,27 +8,25 @@
  * - Trazabilidad completa de operaciones
  */
 
-import { doc, collection, serverTimestamp, DocumentReference, Transaction, getDoc, getDocs, query, where, orderBy } from 'firebase/firestore';
+import { DocumentReference, Transaction, collection, doc, getDoc, getDocs, orderBy, query, serverTimestamp, where } from 'firebase/firestore';
 import { db } from '../components/config/firebase';
 import { EstadoLote, TipoAve } from '../types/enums';
-import { 
-  Cliente, 
-  Producto, 
-  ProductoHuevos, 
+import {
+  Cliente,
+  Producto,
+  ProductoHuevos,
   ProductoLibrasEngorde,
-  TipoProducto, 
-  UnidadVentaHuevos, 
-  TipoVenta,
+  TipoProducto,
+  UnidadVentaHuevos
 } from '../types/facturacion';
-import { 
-  executeTransaction, 
-  PreValidationResult, 
-  TransactionPhases,
-  transaccionesService 
-} from './transacciones.service';
-import { configService } from './config.service';
-import { inventarioService } from './inventario.service';
 import { requireAuth } from './auth.service';
+import { inventarioService } from './inventario.service';
+import {
+  PreValidationResult,
+  TransactionPhases,
+  executeTransaction,
+  transaccionesService
+} from './transacciones.service';
 
 // Nuevos tipos específicos para ventas
 export interface ItemVenta {
@@ -427,7 +425,7 @@ class VentasService {
         const disponibilidadTotal = registrosConInfo.reduce((sum, r) => sum + r.cantidadDisponible, 0);
         let cantidadHuevosNecesaria: number;
         if (productoHuevos.unidadVenta === UnidadVentaHuevos.CAJAS) {
-          cantidadHuevosNecesaria = item.cantidad * (productoHuevos.cantidadPorCaja || config.cantidadHuevosPorCaja);
+          cantidadHuevosNecesaria = item.cantidad * (productoHuevos.cantidadPorCaja || config.eggsPerBox);
         } else {
           cantidadHuevosNecesaria = item.cantidad;
         }
@@ -582,7 +580,7 @@ class VentasService {
         // Calcular cantidad real de huevos
         let cantidadHuevos: number;
         if (productoHuevos.unidadVenta === UnidadVentaHuevos.CAJAS) {
-          cantidadHuevos = item.cantidad * (productoHuevos.cantidadPorCaja || config.cantidadHuevosPorCaja);
+          cantidadHuevos = item.cantidad * (productoHuevos.cantidadPorCaja || config.eggsPerBox);
         } else {
           cantidadHuevos = item.cantidad;
         }

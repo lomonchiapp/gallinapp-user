@@ -1,53 +1,113 @@
 /**
- * Dashboard profesional orientado a ganancias
+ * Dashboard profesional personalizable con widgets modulares
  */
 
 import { useLevantesStore } from '@/src/stores/levantesStore';
-import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
+import { StatusBar } from 'expo-status-bar';
 import React, { useEffect, useRef, useState } from 'react';
-import { RefreshControl, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
-import CostProductionStats from '../../src/components/dashboard/CostProductionStats';
-import Card from '../../src/components/ui/Card';
-import { colors } from '../../src/constants/colors';
+import { StyleSheet, View } from 'react-native';
+import { useTheme } from '../../components/theme-provider';
+import { DashboardContent } from '../../src/components/dashboard/DashboardContent';
+import { FarmOnboardingScreen } from '../../src/components/dashboard/FarmOnboardingScreen';
+import AppHeader from '../../src/components/layouts/AppHeader';
+import { ScreenWrapper } from '../../src/components/navigation/ScreenWrapper';
 import { initializePushNotifications } from '../../src/services/push-notifications.service';
-import { useAppConfigStore } from '../../src/stores/appConfigStore';
 import { useAuthStore } from '../../src/stores/authStore';
+import { useDashboardStore } from '../../src/stores/dashboardStore';
 import { useEngordeStore } from '../../src/stores/engordeStore';
+import { useFarmStore } from '../../src/stores/farmStore';
 import { useFinancialStore } from '../../src/stores/financialStore';
+import { useMultiTenantAuthStore } from '../../src/stores/multiTenantAuthStore';
+import { useOrganizationStore } from '../../src/stores/organizationStore';
 import { usePonedorasStore } from '../../src/stores/ponedorasStore';
 
 export default function DashboardScreen() {
-  const { user, isAuthenticated, authInitialized } = useAuthStore();
+  const { isDark, colors } = useTheme();
   const router = useRouter();
+  const { user, isAuthenticated, authInitialized } = useAuthStore();
+  const { user: multiTenantUser } = useMultiTenantAuthStore();
   const [refreshing, setRefreshing] = useState(false);
   const pushNotificationsInitialized = useRef(false);
+  const farmsLoadedRef = useRef(false);
+  const dataLoadedRef = useRef<string | null>(null);
   
   // Stores
   const ponedorasStore = usePonedorasStore();
   const engordeStore = useEngordeStore();
   const levantesStore = useLevantesStore();
-  const { config, cargarConfiguracion, isLoading: configLoading } = useAppConfigStore();
   const { 
-    estadisticasGenerales, 
     estadisticasLotes, 
     cargarTodasLasEstadisticas, 
     isLoading: financialLoading 
   } = useFinancialStore();
+  const { loadOrganizations } = useOrganizationStore();
+  const { 
+    loadConfig, 
+    toggleEditMode, 
+    isEditMode,
+    saveConfig 
+  } = useDashboardStore();
+  const { loadFarms, currentFarm, farms, isLoading: farmsLoading } = useFarmStore();
   
-  // Cargar datos al montar el componente
+  // Obtener userId una sola vez
+  const userId = multiTenantUser?.uid || user?.uid;
+  
+  // Cargar granjas al montar - solo una vez
   useEffect(() => {
+    if (!userId || farmsLoadedRef.current) return;
+    
     console.log('📊 Dashboard: Inicializando...');
-    cargarDatosIniciales();
-  }, []);
-  
-  // Cargar estadísticas financieras cuando tengamos configuración y lotes
+    farmsLoadedRef.current = true;
+    
+    loadFarms();
+    loadConfig(userId);
+  }, [userId]); // Solo depende de userId
+
+  // Cargar datos solo si hay granja - evitar múltiples ejecuciones
   useEffect(() => {
-    const totalLotes = ponedorasStore.lotes.length + engordeStore.lotes.length + levantesStore.lotes.length;
-    if (config && totalLotes > 0 && !financialLoading) {
-      cargarEstadisticasFinancieras();
+    if (!currentFarm || farmsLoading || dataLoadedRef.current === currentFarm.id) {
+      return;
     }
-  }, [config, ponedorasStore.lotes, engordeStore.lotes, levantesStore.lotes]);
+
+    console.log('📊 Dashboard: Cargando datos para granja:', currentFarm.id);
+    dataLoadedRef.current = currentFarm.id;
+    
+    // Cargar solicitudes de acceso junto con otros datos (Single Source of Truth)
+    const { loadAccessRequests } = useFarmStore.getState();
+    loadAccessRequests(currentFarm.id);
+    
+    cargarDatosIniciales.current();
+  }, [currentFarm?.id, farmsLoading]);
+  
+  // Guardar configuración cuando cambie - con debounce implícito
+  useEffect(() => {
+    if (!userId || !isEditMode) return;
+    
+    const dashboardConfig = useDashboardStore.getState().config;
+    if (dashboardConfig) {
+      // Usar timeout para evitar múltiples guardados
+      const timeoutId = setTimeout(() => {
+        saveConfig(userId, dashboardConfig);
+      }, 500);
+      
+      return () => clearTimeout(timeoutId);
+    }
+  }, [isEditMode, userId]);
+  
+  // Cargar estadísticas financieras - solo cuando cambie el número de lotes
+  const statsLoadedRef = React.useRef<string | null>(null);
+  useEffect(() => {
+    if (!currentFarm || financialLoading) return;
+    
+    const totalLotes = ponedorasStore.lotes.length + engordeStore.lotes.length + levantesStore.lotes.length;
+    const statsKey = `${currentFarm.id}-${totalLotes}`;
+    
+    if (totalLotes > 0 && statsLoadedRef.current !== statsKey) {
+      statsLoadedRef.current = statsKey;
+      cargarEstadisticasFinancieras.current();
+    }
+  }, [currentFarm?.id, ponedorasStore.lotes.length, engordeStore.lotes.length, levantesStore.lotes.length]);
 
   // Inicializar push notifications SOLO cuando Firebase Auth confirme que hay usuario autenticado
   // Esto evita errores de "Usuario no autenticado" al guardar el token
@@ -61,10 +121,14 @@ export default function DashboardScreen() {
     }
   }, [authInitialized, isAuthenticated, user]);
   
-  const cargarDatosIniciales = async () => {
+  const cargarDatosIniciales = React.useRef(async () => {
+    if (!currentFarm) {
+      console.log('⚠️ No hay granja, omitiendo carga de datos');
+      return;
+    }
+
     try {
       await Promise.all([
-        cargarConfiguracion(),
         ponedorasStore.cargarLotes(),
         engordeStore.cargarLotes(),
         levantesStore.cargarLotes(),
@@ -72,14 +136,34 @@ export default function DashboardScreen() {
     } catch (error) {
       console.error('Error al cargar datos iniciales:', error);
     }
-  };
+  });
   
-  const cargarEstadisticasFinancieras = async () => {
-    if (!config) return;
+  // Actualizar la función cuando cambie currentFarm
+  React.useEffect(() => {
+    cargarDatosIniciales.current = async () => {
+      if (!currentFarm) {
+        console.log('⚠️ No hay granja, omitiendo carga de datos');
+        return;
+      }
+
+      try {
+        await Promise.all([
+          ponedorasStore.cargarLotes(),
+          engordeStore.cargarLotes(),
+          levantesStore.cargarLotes(),
+        ]);
+      } catch (error) {
+        console.error('Error al cargar datos iniciales:', error);
+      }
+    };
+  }, [currentFarm?.id]);
+  
+  const cargarEstadisticasFinancieras = React.useRef(async () => {
+    if (!currentFarm) return;
     
     try {
       await cargarTodasLasEstadisticas(
-        config,
+        currentFarm,
         ponedorasStore.lotes,
         engordeStore.lotes,
         levantesStore.lotes
@@ -87,18 +171,77 @@ export default function DashboardScreen() {
     } catch (error) {
       console.error('Error al cargar estadísticas financieras:', error);
     }
-  };
+  });
+  
+  // Actualizar la función cuando cambien las dependencias
+  React.useEffect(() => {
+    cargarEstadisticasFinancieras.current = async () => {
+      if (!currentFarm) return;
+      
+      try {
+        await cargarTodasLasEstadisticas(
+          currentFarm,
+          ponedorasStore.lotes,
+          engordeStore.lotes,
+          levantesStore.lotes
+        );
+      } catch (error) {
+        console.error('Error al cargar estadísticas financieras:', error);
+      }
+    };
+  }, [currentFarm?.id, ponedorasStore.lotes.length, engordeStore.lotes.length, levantesStore.lotes.length]);
   
   const onRefresh = async () => {
+    if (!currentFarm) {
+      // Si no hay granja, solo recargar farms
+      await loadFarms();
+      return;
+    }
+
     setRefreshing(true);
-    await cargarDatosIniciales();
-    await cargarEstadisticasFinancieras();
+    await loadFarms(); // Recargar farms también
+    await cargarDatosIniciales.current();
+    await cargarEstadisticasFinancieras.current();
     setRefreshing(false);
   };
+
+  const handleFarmCreated = React.useCallback(async () => {
+    console.log('🎉 Dashboard: Granja creada, recargando...');
+    // Resetear refs para permitir recarga
+    farmsLoadedRef.current = false;
+    dataLoadedRef.current = null;
+    
+    try {
+      // Recargar farms después de crear una granja
+      await loadFarms();
+      
+      // Esperar un momento para que se actualice el estado
+      await new Promise(resolve => setTimeout(resolve, 300));
+      
+      const { currentFarm: updatedFarm, farms: updatedFarms } = useFarmStore.getState();
+      console.log('📊 Dashboard: Estado después de crear granja:', {
+        farmsCount: updatedFarms.length,
+        currentFarm: updatedFarm?.name || 'null'
+      });
+      
+      if (updatedFarm) {
+        console.log('✅ Dashboard: Granja cargada:', updatedFarm.name);
+        // Forzar recarga de datos
+        dataLoadedRef.current = null;
+      } else if (updatedFarms.length > 0) {
+        // Si hay granjas pero no hay currentFarm, seleccionar la primera
+        console.log('🔄 Dashboard: Seleccionando primera granja...');
+        const { switchFarm } = useFarmStore.getState();
+        await switchFarm(updatedFarms[0].id);
+      }
+    } catch (error) {
+      console.error('❌ Error al recargar después de crear granja:', error);
+    }
+  }, [loadFarms]);
   
   // Estados de carga
   const isLoading = ponedorasStore.isLoading || engordeStore.isLoading || 
-                   levantesStore.isLoading || configLoading || financialLoading;
+                   levantesStore.isLoading || financialLoading;
   
   // Estadísticas básicas
   const ponedorasActivas = ponedorasStore.lotes.length;
@@ -127,374 +270,93 @@ export default function DashboardScreen() {
     .sort((a, b) => b.margenGanancia - a.margenGanancia)
     .slice(0, 3);
 
+  // Si no hay granja, mostrar pantalla de onboarding
+  // Solo mostrar onboarding si no está cargando y no hay granjas
+  if (!currentFarm && !farmsLoading && farms.length === 0) {
+    return (
+      <ScreenWrapper transitionType="fade">
+        <View style={[styles.container, { backgroundColor: colors.background.primary }]}>
+          <StatusBar style={isDark ? 'light' : 'dark'} />
+          <FarmOnboardingScreen onFarmCreated={handleFarmCreated} />
+        </View>
+      </ScreenWrapper>
+    );
+  }
+
+  // Si está cargando farms, mostrar loading
+  if (farmsLoading) {
+    return (
+      <ScreenWrapper transitionType="fade">
+        <View style={[styles.container, { backgroundColor: colors.background.primary }]}>
+          <StatusBar style={isDark ? 'light' : 'dark'} />
+          <View style={styles.loadingContainer}>
+            {/* Cargando granjas... */}
+          </View>
+        </View>
+      </ScreenWrapper>
+    );
+  }
+
+  // Si hay granjas pero no hay currentFarm seleccionada, seleccionar la primera
+  if (farms.length > 0 && !currentFarm) {
+    React.useEffect(() => {
+      const { switchFarm } = useFarmStore.getState();
+      switchFarm(farms[0].id);
+    }, [farms.length]);
+    
+    return (
+      <ScreenWrapper transitionType="fade">
+        <View style={[styles.container, { backgroundColor: colors.background.primary }]}>
+          <StatusBar style={isDark ? 'light' : 'dark'} />
+          <View style={styles.loadingContainer}>
+            {/* Seleccionando granja... */}
+          </View>
+        </View>
+      </ScreenWrapper>
+    );
+  }
+
+  // Dashboard normal cuando hay granja
   return (
-    <ScrollView 
-      style={styles.container} 
-      contentContainerStyle={styles.contentContainer}
-      refreshControl={
-        <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
-      }
-    >
-      {/* Header */}
-      <View style={styles.header}>
-        <View style={styles.headerContent}>
-          <Text style={styles.welcomeText}>
-            Bienvenido, {user?.displayName || 'Usuario'}
-          </Text>
-          <Text style={styles.dateText}>
-            {new Date().toLocaleDateString('es-ES', { 
-              weekday: 'long', 
-              year: 'numeric', 
-              month: 'long', 
-              day: 'numeric' 
-            })}
-          </Text>
-        </View>
-        <TouchableOpacity 
-          style={styles.configButton}
-          onPress={() => router.push('/(tabs)/settings')}
-        >
-          <Ionicons name="settings-outline" size={24} color={colors.textDark} />
-        </TouchableOpacity>
+    <ScreenWrapper transitionType="fade">
+      <View style={[styles.container, { backgroundColor: colors.background.primary }]}>
+        <StatusBar style={isDark ? 'light' : 'dark'} />
+        <AppHeader
+          variant="fixed"
+          enableBlur={false}
+          showFarmSwitcher={true}
+          showThemeToggle={true}
+          title1={`Bienvenido,`}
+          title2={multiTenantUser?.displayName || user?.displayName || 'Usuario'}
+          showFarmButton={true}
+          showFarmSettings={true}
+        />
+
+        {/* Contenido escrolleable del Dashboard */}
+        <DashboardContent
+          currentFarm={currentFarm}
+          ponedorasActivas={ponedorasActivas}
+          engordeActivos={engordeActivos}
+          israeliesActivos={israeliesActivos}
+          topLotesRentables={topLotesRentables}
+          isLoading={isLoading}
+          onRefresh={onRefresh}
+          refreshing={refreshing}
+        />
       </View>
-
-      {/* Estadísticas por Tipo de Negocio */}
-      <View style={styles.businessTypesContainer}>
-        <Card style={StyleSheet.flatten([styles.businessTypeCard, { borderLeftColor: colors.primary }])}>
-          <View style={styles.businessTypeHeader}>
-            <Ionicons name="egg" size={20} color={colors.primary} />
-            <Text style={styles.businessTypeTitle}>Ponedoras</Text>
-          </View>
-          <Text style={styles.businessTypeValue}>
-            {ponedorasActivas} Lotes
-          </Text>
-          
-        </Card>
-
-        <Card style={StyleSheet.flatten([styles.businessTypeCard, { borderLeftColor: colors.warning }])}>
-          <View style={styles.businessTypeHeader}>
-            <Ionicons name="fast-food" size={20} color={colors.warning} />
-            <Text style={styles.businessTypeTitle}>Engorde</Text>
-          </View>
-          <Text style={styles.businessTypeValue}>
-            {engordeActivos} Lotes
-          </Text>
-        </Card>
-
-        <Card style={StyleSheet.flatten([styles.businessTypeCard, { borderLeftColor: colors.success }])}>
-          <View style={styles.businessTypeHeader}>
-            <Ionicons name="nutrition" size={20} color={colors.success} />
-            <Text style={styles.businessTypeTitle}>Levantes</Text>
-          </View>
-          <Text style={styles.businessTypeValue}>
-            {israeliesActivos} Lotes
-          </Text>
-        </Card>
-      </View>
-
-      {/* Estadísticas de Costos de Producción */}
-      <CostProductionStats isLoading={isLoading} />
-
-      {/* Top Lotes Rentables */}
-      {topLotesRentables.length > 0 && (
-        <Card style={styles.topLotesCard}>
-          <View style={styles.topLotesHeader}>
-            <Ionicons name="trophy" size={24} color={colors.warning} />
-            <Text style={styles.cardTitle}>Lotes Más Rentables</Text>
-          </View>
-          {topLotesRentables.map((lote, index) => (
-            <View key={lote.loteId} style={styles.topLoteItem}>
-              <View style={styles.topLoteRank}>
-                <Text style={styles.topLoteRankText}>{index + 1}</Text>
-              </View>
-              <View style={styles.topLoteInfo}>
-                <Text style={styles.topLoteName}>{lote.nombre}</Text>
-                <Text style={styles.topLoteType}>
-                  {lote.tipoLote === 'ponedoras' ? 'Ponedoras' : 
-                   lote.tipoLote === 'engorde' ? 'Engorde' : 'Israelíes'}
-                </Text>
-              </View>
-              <View style={styles.topLoteStats}>
-                <Text style={styles.topLoteGanancia}>
-                  {formatearMoneda(lote.ganancias)}
-                </Text>
-                <Text style={styles.topLoteMargen}>
-                  {formatearPorcentaje(lote.margenGanancia)}
-                </Text>
-              </View>
-            </View>
-          ))}
-        </Card>
-      )}
-
-      {/* Acciones Rápidas 
-      <Card style={styles.quickActionsCard}>
-        <Text style={styles.cardTitle}>Acciones Rápidas</Text>
-        <View style={styles.quickActionsGrid}>
-          <TouchableOpacity 
-            style={styles.quickActionButton}
-            onPress={() => router.push('/ponedoras')}
-          >
-            <Ionicons name="egg" size={24} color={colors.primary} />
-            <Text style={styles.quickActionText}>Ponedoras</Text>
-          </TouchableOpacity>
-          
-          <TouchableOpacity 
-            style={styles.quickActionButton}
-            onPress={() => router.push('/engorde')}
-          >
-            <Ionicons name="fast-food" size={24} color={colors.warning} />
-            <Text style={styles.quickActionText}>Engorde</Text>
-          </TouchableOpacity>
-          
-          <TouchableOpacity 
-            style={styles.quickActionButton}
-            onPress={() => router.push('/levantes')}
-          >
-            <Ionicons name="nutrition" size={24} color={colors.success} />
-            <Text style={styles.quickActionText}>Levantes</Text>
-          </TouchableOpacity>
-          
-          <TouchableOpacity 
-            style={styles.quickActionButton}
-            onPress={() => router.push('/gastos')}
-          >
-            <Ionicons name="receipt" size={24} color={colors.danger} />
-            <Text style={styles.quickActionText}>Gastos</Text>
-          </TouchableOpacity>
-        </View>
-      </Card>
-*/}
-      {/* Estado de Configuración */}
-      {!config && (
-        <Card style={styles.configAlertCard}>
-          <View style={styles.configAlertContent}>
-            <Ionicons name="settings" size={24} color={colors.warning} />
-            <View style={styles.configAlertText}>
-              <Text style={styles.configAlertTitle}>Configuración Requerida</Text>
-              <Text style={styles.configAlertSubtitle}>
-                Configure los precios de venta para obtener cálculos financieros precisos
-              </Text>
-            </View>
-            <TouchableOpacity 
-              style={styles.configAlertButton}
-              onPress={() => router.push('/(tabs)/settings')}
-            >
-              <Text style={styles.configAlertButtonText}>Configurar</Text>
-            </TouchableOpacity>
-          </View>
-        </Card>
-      )}
-    </ScrollView>
+    </ScreenWrapper>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: colors.background,
   },
-  contentContainer: {
-    padding: 16,
-  },
-  
-  // Header
-  header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    marginBottom: 24,
-  },
-  headerContent: {
+  loadingContainer: {
     flex: 1,
-  },
-  welcomeText: {
-    fontSize: 28,
-    fontWeight: 'bold',
-    color: colors.textDark,
-  },
-  dateText: {
-    fontSize: 16,
-    color: colors.textMedium,
-    marginTop: 4,
-  },
-  configButton: {
-    padding: 8,
-    borderRadius: 8,
-    backgroundColor: colors.white,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.1,
-    shadowRadius: 2,
-    elevation: 2,
-  },
-  
-  
-  // Business Types
-  businessTypesContainer: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginBottom: 20,
-  },
-  businessTypeCard: {
-    flex: 1,
-    marginHorizontal: 4,
-    padding: 16,
-    borderLeftWidth: 4,
-    borderRadius: 12,
-  },
-  businessTypeHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 12,
-  },
-  businessTypeTitle: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: colors.textDark,
-    marginLeft: 8,
-  },
-  businessTypeValue: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: colors.textDark,
-    marginBottom: 4,
-  },
-  businessTypeLabel: {
-    fontSize: 12,
-    color: colors.textMedium,
-    marginBottom: 8,
-  },
-  businessTypeSubtext: {
-    fontSize: 11,
-    color: colors.textLight,
-  },
-  
-  // Top Lotes
-  topLotesCard: {
-    marginBottom: 20,
-  },
-  topLotesHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 16,
-  },
-  topLoteItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-    backgroundColor: colors.veryLightGray,
-    borderRadius: 12,
-    marginBottom: 8,
-  },
-  topLoteRank: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: colors.warning,
     justifyContent: 'center',
     alignItems: 'center',
-    marginRight: 12,
-  },
-  topLoteRankText: {
-    fontSize: 14,
-    fontWeight: 'bold',
-    color: colors.white,
-  },
-  topLoteInfo: {
-    flex: 1,
-  },
-  topLoteName: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: colors.textDark,
-  },
-  topLoteType: {
-    fontSize: 12,
-    color: colors.textMedium,
-    marginTop: 2,
-  },
-  topLoteStats: {
-    alignItems: 'flex-end',
-  },
-  topLoteGanancia: {
-    fontSize: 14,
-    fontWeight: 'bold',
-    color: colors.success,
-  },
-  topLoteMargen: {
-    fontSize: 12,
-    color: colors.textMedium,
-    marginTop: 2,
   },
   
-  // Quick Actions
-  quickActionsCard: {
-    marginBottom: 20,
-  },
-  quickActionsGrid: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-  },
-  quickActionButton: {
-    flex: 1,
-    alignItems: 'center',
-    padding: 16,
-    marginHorizontal: 4,
-    backgroundColor: colors.veryLightGray,
-    borderRadius: 12,
-  },
-  quickActionText: {
-    fontSize: 12,
-    fontWeight: '500',
-    color: colors.textDark,
-    marginTop: 8,
-  },
-  
-  // Config Alert
-  configAlertCard: {
-    backgroundColor: '#fff3cd',
-    borderColor: '#ffeaa7',
-    borderWidth: 1,
-    marginBottom: 20,
-  },
-  configAlertContent: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    padding: 16,
-  },
-  configAlertText: {
-    flex: 1,
-    marginLeft: 12,
-  },
-  configAlertTitle: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    color: '#856404',
-  },
-  configAlertSubtitle: {
-    fontSize: 14,
-    color: '#856404',
-    marginTop: 4,
-  },
-  configAlertButton: {
-    backgroundColor: colors.warning,
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 8,
-  },
-  configAlertButtonText: {
-    fontSize: 14,
-    fontWeight: 'bold',
-    color: colors.white,
-  },
-  
-  // Common
-  cardTitle: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: colors.textDark,
-    marginBottom: 16,
-  },
+  // Widgets Container
 });

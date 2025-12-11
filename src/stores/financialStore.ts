@@ -4,12 +4,12 @@
 
 import { create } from 'zustand';
 import {
-    EstadisticasFinancieras,
-    EstadisticasLote,
-    calcularEstadisticasFinancieras,
-    calcularEstadisticasLote
+  EstadisticasFinancieras,
+  EstadisticasLote,
+  calcularEstadisticasFinancieras,
+  calcularEstadisticasLote
 } from '../services/financial.service';
-import { AppConfig } from '../types/appConfig';
+import { Farm } from '../types/farm';
 
 interface FinancialState {
   // Estado
@@ -20,14 +20,14 @@ interface FinancialState {
   
   // Acciones
   cargarEstadisticasGenerales: (
-    config: AppConfig,
+    farm: Farm | null,
     lotesPonedoras: any[],
     lotesEngorde: any[],
     lotesIsraelies: any[]
   ) => Promise<void>;
-  cargarEstadisticasLote: (lote: any, config: AppConfig) => Promise<void>;
+  cargarEstadisticasLote: (lote: any, farm: Farm | null) => Promise<void>;
   cargarTodasLasEstadisticas: (
-    config: AppConfig,
+    farm: Farm | null,
     lotesPonedoras: any[],
     lotesEngorde: any[],
     lotesIsraelies: any[]
@@ -43,11 +43,11 @@ export const useFinancialStore = create<FinancialState>((set, get) => ({
   error: null,
   
   // Cargar estadísticas generales
-  cargarEstadisticasGenerales: async (config, lotesPonedoras, lotesEngorde, lotesIsraelies) => {
+  cargarEstadisticasGenerales: async (farm, lotesPonedoras, lotesEngorde, lotesIsraelies) => {
     set({ isLoading: true, error: null });
     try {
       const estadisticas = await calcularEstadisticasFinancieras(
-        config, 
+        farm, 
         lotesPonedoras, 
         lotesEngorde, 
         lotesIsraelies
@@ -62,9 +62,9 @@ export const useFinancialStore = create<FinancialState>((set, get) => ({
   },
   
   // Cargar estadísticas de un lote específico
-  cargarEstadisticasLote: async (lote, config) => {
+  cargarEstadisticasLote: async (lote, farm) => {
     try {
-      const estadisticasLote = await calcularEstadisticasLote(lote, config);
+      const estadisticasLote = await calcularEstadisticasLote(lote, farm);
       set(state => ({
         estadisticasLotes: [
           ...state.estadisticasLotes.filter(e => e.loteId !== lote.id),
@@ -77,12 +77,12 @@ export const useFinancialStore = create<FinancialState>((set, get) => ({
   },
   
   // Cargar todas las estadísticas (generales + lotes)
-  cargarTodasLasEstadisticas: async (config, lotesPonedoras, lotesEngorde, lotesIsraelies) => {
+  cargarTodasLasEstadisticas: async (farm, lotesPonedoras, lotesEngorde, lotesIsraelies) => {
     set({ isLoading: true, error: null });
     try {
       // Cargar estadísticas generales
       const estadisticasGenerales = await calcularEstadisticasFinancieras(
-        config, 
+        farm, 
         lotesPonedoras, 
         lotesEngorde, 
         lotesIsraelies
@@ -94,7 +94,7 @@ export const useFinancialStore = create<FinancialState>((set, get) => ({
       
       for (const lote of todosLosLotes) {
         try {
-          const estadisticasLote = await calcularEstadisticasLote(lote, config);
+          const estadisticasLote = await calcularEstadisticasLote(lote, farm);
           estadisticasLotes.push(estadisticasLote);
         } catch (error) {
           console.error(`Error al calcular estadísticas del lote ${lote.id}:`, error);
