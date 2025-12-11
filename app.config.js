@@ -66,6 +66,8 @@ module.exports = {
     },
     plugins: [
       "expo-router",
+      "expo-font",
+      "expo-web-browser",
       [
         "expo-splash-screen",
         {
@@ -92,12 +94,12 @@ module.exports = {
       typedRoutes: true,
       reactCompiler: true
     },
-    extra: {
-      router: {},
-      eas: {
-        projectId: "2df095ff-3ae8-48d2-b6f6-ad230be71b99"
-      },
-      gallinapp: {
+      extra: {
+        router: {},
+        eas: {
+          projectId: "d298378b-ccaf-46a4-8c4b-480efc4e09d3"
+        },
+        gallinapp: {
         apiUrl: "https://api.gallinapp.com",
         supportEmail: "soporte@gallinapp.com",
         websiteUrl: "https://gallinapp.com"
@@ -107,6 +109,17 @@ module.exports = {
       googleIosClientId: process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID || process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID || "58539992128-orbman05sk0j6qjspo32femr44ervmq0.apps.googleusercontent.com",
       googleAndroidClientId: process.env.EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID || process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID || "58539992128-orbman05sk0j6qjspo32femr44ervmq0.apps.googleusercontent.com",
       googleWebClientId: process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID || process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID || "58539992128-orbman05sk0j6qjspo32femr44ervmq0.apps.googleusercontent.com",
+      // Variables de entorno para Suscripciones
+      revenueCatApiKey: process.env.EXPO_PUBLIC_REVENUECAT_API_KEY || '',
+      revenueCatAppId: process.env.EXPO_PUBLIC_REVENUECAT_APP_ID || '',
+      stripePublishableKey: process.env.EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY || '',
+      // Variables de entorno para Firebase
+      firebaseApiKey: process.env.EXPO_PUBLIC_FIREBASE_API_KEY || '',
+      firebaseAuthDomain: process.env.EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN || '',
+      firebaseProjectId: process.env.EXPO_PUBLIC_FIREBASE_PROJECT_ID || '',
+      firebaseStorageBucket: process.env.EXPO_PUBLIC_FIREBASE_STORAGE_BUCKET || '',
+      firebaseMessagingSenderId: process.env.EXPO_PUBLIC_FIREBASE_MESSAGING_SENDER_ID || '',
+      firebaseAppId: process.env.EXPO_PUBLIC_FIREBASE_APP_ID || '',
     },
     primaryColor: "#345DAD",
     splash: {
@@ -118,9 +131,6 @@ module.exports = {
     runtimeVersion: {
       policy: "appVersion"
     },
-    updates: {
-      url: "https://u.expo.dev/2df095ff-3ae8-48d2-b6f6-ad230be71b99"
-    }
   }
 };
 

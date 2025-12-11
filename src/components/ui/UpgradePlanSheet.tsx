@@ -4,10 +4,11 @@
 
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
-import { router } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
+    ActivityIndicator,
+    Alert,
     Animated,
     FlatList,
     Image,
@@ -20,7 +21,10 @@ import {
 } from 'react-native';
 import { useTheme } from '../../../components/theme-provider';
 import { borderRadius, shadows, spacing, typography } from '../../constants/designSystem';
-import { SubscriptionPlan } from '../../types/subscription';
+import { useSubscription } from '../../hooks/useSubscription';
+import { subscriptionService } from '../../services/subscription.service';
+import { SubscriptionPlan } from '../../types/organization';
+import { SubscriptionSuccessSheet } from './SubscriptionSuccessSheet';
 
 interface UpgradePlanSheetProps {
   visible: boolean;
@@ -36,6 +40,13 @@ export const UpgradePlanSheet: React.FC<UpgradePlanSheetProps> = ({
   featureName = 'esta funcionalidad',
 }) => {
   const { colors, isDark } = useTheme();
+  const { presentPaywall, isLoading: isSubscriptionLoading, subscriptionInfo, refreshSubscription } = useSubscription();
+  const [isProcessing, setIsProcessing] = useState(false);
+  const [showSuccessSheet, setShowSuccessSheet] = useState(false);
+  const [successSheetData, setSuccessSheetData] = useState<{
+    newPlan: SubscriptionPlan;
+    previousPlan?: SubscriptionPlan;
+  } | null>(null);
 
   // Verificación de seguridad
   if (!colors) {
@@ -130,10 +141,88 @@ export const UpgradePlanSheet: React.FC<UpgradePlanSheetProps> = ({
     outputRange: ['-5deg', '5deg'],
   });
 
-  const handleUpgrade = () => {
-    onClose();
-    // Navegar a configuración de suscripción
-    router.push('/(tabs)/settings');
+  /**
+   * Maneja la compra del plan a través de RevenueCat
+   */
+  const handleUpgrade = async () => {
+    try {
+      setIsProcessing(true);
+      
+      // Guardar plan anterior
+      const previousPlan = subscriptionInfo?.plan;
+      
+      // Presentar paywall de RevenueCat
+      const result = await presentPaywall();
+      
+      if (result.success && result.newPlan) {
+        // Solo mostrar sheet si el plan realmente cambió y no es FREE
+        if (result.newPlan !== SubscriptionPlan.FREE && result.newPlan !== previousPlan) {
+          // Compra exitosa - cerrar este modal y mostrar sheet de bienvenida
+          setIsProcessing(false);
+          onClose();
+          
+          // Mostrar sheet de bienvenida
+          setSuccessSheetData({
+            newPlan: result.newPlan,
+            previousPlan: previousPlan,
+          });
+          setShowSuccessSheet(true);
+        } else if (result.newPlan === SubscriptionPlan.FREE) {
+          // Si el plan sigue siendo FREE después de comprar, mostrar mensaje con opción de verificar
+          setIsProcessing(false);
+          Alert.alert(
+            'Procesando compra',
+            'Tu compra está siendo procesada. Esto puede tardar unos momentos. ¿Deseas verificar ahora?',
+            [
+              { text: 'Más tarde', style: 'cancel', onPress: onClose },
+              {
+                text: 'Verificar ahora',
+                onPress: async () => {
+                  try {
+                    setIsProcessing(true);
+                    // Recargar información
+                    await refreshSubscription();
+                    // Verificar si ahora tiene acceso
+                    const updatedInfo = await subscriptionService.getSubscriptionInfo();
+                    if (updatedInfo.plan !== SubscriptionPlan.FREE) {
+                      Alert.alert(
+                        '¡Compra activada!',
+                        `Tu plan ${updatedInfo.plan} está ahora activo. Ya puedes acceder a esta funcionalidad.`,
+                        [{ text: 'Genial', onPress: onClose }]
+                      );
+                    } else {
+                      Alert.alert(
+                        'Aún procesando',
+                        'Tu compra aún se está procesando. Por favor, espera unos minutos y vuelve a intentar.',
+                        [{ text: 'Entendido', onPress: onClose }]
+                      );
+                    }
+                  } catch (error: any) {
+                    Alert.alert('Error', error.message || 'No se pudo verificar la compra');
+                  } finally {
+                    setIsProcessing(false);
+                  }
+                },
+              },
+            ]
+          );
+        } else {
+          setIsProcessing(false);
+        }
+      } else {
+        // Usuario canceló o hubo error
+        setIsProcessing(false);
+        // No cerrar el modal para que pueda intentar de nuevo
+      }
+    } catch (error: any) {
+      console.error('Error en handleUpgrade:', error);
+      setIsProcessing(false);
+      Alert.alert(
+        'Error',
+        error.message || 'No se pudo procesar la compra. Por favor, intenta de nuevo.',
+        [{ text: 'Entendido' }]
+      );
+    }
   };
 
   const handleClose = () => {
@@ -150,7 +239,7 @@ export const UpgradePlanSheet: React.FC<UpgradePlanSheetProps> = ({
     { id: '5', title: 'Exportación ilimitada', description: 'Datos sin límites', icon: 'download' },
   ];
 
-  const renderFeatureCard = ({ item }: { item: typeof planFeatures[0] }) => {
+  const renderFeatureCard = ({ item }: { item: { id: string; title: string; description: string; icon: string } }) => {
     return (
       <View style={[styles.featureCard, { backgroundColor: colors.background.secondary }]}>
         <LinearGradient
@@ -339,9 +428,19 @@ export const UpgradePlanSheet: React.FC<UpgradePlanSheetProps> = ({
               onPress={handleUpgrade}
               style={styles.upgradeButtonTouchable}
               activeOpacity={0.8}
+              disabled={isProcessing || isSubscriptionLoading}
             >
-              <Text style={styles.upgradeButtonText}>Mejorar Plan Ahora</Text>
-              <Ionicons name="arrow-forward" size={20} color="#FFFFFF" />
+              {isProcessing || isSubscriptionLoading ? (
+                <>
+                  <ActivityIndicator size="small" color="#FFFFFF" />
+                  <Text style={styles.upgradeButtonText}>Procesando...</Text>
+                </>
+              ) : (
+                <>
+                  <Text style={styles.upgradeButtonText}>Mejorar Plan Ahora</Text>
+                  <Ionicons name="arrow-forward" size={20} color="#FFFFFF" />
+                </>
+              )}
             </TouchableOpacity>
           </LinearGradient>
           <TouchableOpacity onPress={handleClose} style={styles.cancelButton}>
@@ -351,6 +450,19 @@ export const UpgradePlanSheet: React.FC<UpgradePlanSheetProps> = ({
           </TouchableOpacity>
         </Animated.View>
       </View>
+
+      {/* Sheet de bienvenida después de compra exitosa */}
+      {successSheetData && (
+        <SubscriptionSuccessSheet
+          visible={showSuccessSheet}
+          onClose={() => {
+            setShowSuccessSheet(false);
+            setSuccessSheetData(null);
+          }}
+          newPlan={successSheetData.newPlan}
+          previousPlan={successSheetData.previousPlan}
+        />
+      )}
     </Modal>
   );
 };

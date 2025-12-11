@@ -10,7 +10,7 @@
       "channel": "development",
       "autoIncrement": false,
       "ios": {
-        "simulator": true
+        "simulator": false
       }
     },
     "internal": {

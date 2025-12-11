@@ -15,6 +15,12 @@ interface SubscriptionInfo {
   trialEnd?: Date;
 }
 
+interface PresentPaywallResult {
+  success: boolean;
+  previousPlan?: SubscriptionPlan;
+  newPlan?: SubscriptionPlan;
+}
+
 interface UseSubscriptionReturn {
   // Estado
   subscriptionInfo: SubscriptionInfo | null;
@@ -26,9 +32,12 @@ interface UseSubscriptionReturn {
   cancelSubscription: () => Promise<void>;
   restorePurchases: () => Promise<boolean>;
   refreshSubscription: () => Promise<void>;
+  presentPaywall: () => Promise<PresentPaywallResult>;
+  cancelCurrentSubscription: () => Promise<boolean>;
   
   // Verificadores
   hasFeatureAccess: (feature: string) => Promise<boolean>;
+  checkEntitlement: () => Promise<boolean>;
   checkUsageLimit: (resource: 'lotes' | 'users' | 'transactions', currentUsage: number) => Promise<{
     allowed: boolean;
     limit: number;
@@ -60,11 +69,16 @@ export const useSubscription = (): UseSubscriptionReturn => {
     } catch (err: any) {
       console.error('Error inicializando servicio de suscripción:', err);
       setError(err.message || 'Error inicializando suscripciones');
+      // Si falla, establecer plan FREE por defecto
+      setSubscriptionInfo({
+        plan: SubscriptionPlan.FREE,
+        status: SubscriptionStatus.INACTIVE,
+      });
     }
   }, [user]);
 
   /**
-   * Carga información de suscripción
+   * Carga información de suscripción actual desde RevenueCat
    */
   const loadSubscriptionInfo = useCallback(async () => {
     try {
@@ -73,16 +87,22 @@ export const useSubscription = (): UseSubscriptionReturn => {
 
       const info = await subscriptionService.getSubscriptionInfo();
       setSubscriptionInfo(info);
+      console.log('✅ Suscripción cargada:', info);
     } catch (err: any) {
       console.error('Error cargando información de suscripción:', err);
       setError(err.message || 'Error cargando suscripción');
+      // Si hay error, asumir plan gratuito
+      setSubscriptionInfo({
+        plan: SubscriptionPlan.FREE,
+        status: SubscriptionStatus.INACTIVE,
+      });
     } finally {
       setIsLoading(false);
     }
   }, []);
 
   /**
-   * Compra una suscripción
+   * Compra una suscripción (deprecado - usar presentPaywall)
    */
   const purchaseSubscription = useCallback(async (plan: SubscriptionPlan): Promise<boolean> => {
     try {
@@ -114,7 +134,7 @@ export const useSubscription = (): UseSubscriptionReturn => {
       setError(null);
 
       await subscriptionService.cancelSubscription();
-      // La cancelación real se hace desde la tienda, solo mostramos instrucciones
+      // La cancelación real se hace desde la tienda
     } catch (err: any) {
       console.error('Error cancelando suscripción:', err);
       setError(err.message || 'Error cancelando suscripción');
@@ -153,6 +173,99 @@ export const useSubscription = (): UseSubscriptionReturn => {
   const refreshSubscription = useCallback(async (): Promise<void> => {
     await loadSubscriptionInfo();
   }, [loadSubscriptionInfo]);
+
+  /**
+   * Presenta el paywall de RevenueCat
+   * Retorna el plan anterior y el nuevo plan si hubo cambio
+   */
+  const presentPaywall = useCallback(async (): Promise<{
+    success: boolean;
+    previousPlan?: SubscriptionPlan;
+    newPlan?: SubscriptionPlan;
+  }> => {
+    try {
+      setIsLoading(true);
+      
+      // Guardar plan anterior antes de comprar
+      const previousPlan = subscriptionInfo?.plan;
+      
+      const success = await subscriptionService.presentPaywall();
+      
+      if (success) {
+        // Forzar actualización de CustomerInfo inmediatamente
+        console.log('🔄 Forzando actualización de CustomerInfo...');
+        try {
+          await subscriptionService.refreshCustomerInfo();
+        } catch (error) {
+          console.warn('⚠️ No se pudo forzar actualización:', error);
+        }
+        
+        // Esperar un momento para que RevenueCat procese la compra
+        console.log('⏳ Esperando procesamiento de RevenueCat...');
+        await new Promise(resolve => setTimeout(resolve, 2000));
+        
+        // Recargar información después de compra exitosa
+        console.log('🔄 Recargando información de suscripción (intento 1)...');
+        await loadSubscriptionInfo();
+        
+        // Obtener el nuevo plan directamente del servicio
+        let updatedInfo = await subscriptionService.getSubscriptionInfo();
+        
+        // Si el plan sigue siendo FREE, intentar más veces con polling
+        let attempts = 0;
+        const maxAttempts = 3;
+        
+        while (updatedInfo.plan === SubscriptionPlan.FREE && attempts < maxAttempts && previousPlan === SubscriptionPlan.FREE) {
+          attempts++;
+          console.log(`🔄 Intento ${attempts}/${maxAttempts}: Plan aún es FREE, esperando más tiempo...`);
+          await new Promise(resolve => setTimeout(resolve, 2000));
+          
+          // Forzar actualización nuevamente
+          try {
+            await subscriptionService.refreshCustomerInfo();
+          } catch (error) {
+            console.warn('⚠️ Error en actualización forzada:', error);
+          }
+          
+          await loadSubscriptionInfo();
+          updatedInfo = await subscriptionService.getSubscriptionInfo();
+        }
+        
+        console.log('✅ Plan detectado después de compra:', {
+          previousPlan,
+          newPlan: updatedInfo.plan,
+          status: updatedInfo.status,
+          attempts,
+        });
+        
+        return {
+          success: true,
+          previousPlan,
+          newPlan: updatedInfo.plan,
+        };
+      }
+      
+      return { success: false };
+    } catch (err: any) {
+      console.error('Error presentando paywall:', err);
+      setError(err.message || 'Error mostrando opciones de suscripción');
+      return { success: false };
+    } finally {
+      setIsLoading(false);
+    }
+  }, [loadSubscriptionInfo, subscriptionInfo]);
+
+  /**
+   * Verifica si el usuario tiene el entitlement activo
+   */
+  const checkEntitlement = useCallback(async (): Promise<boolean> => {
+    try {
+      return await subscriptionService.checkEntitlement();
+    } catch (err) {
+      console.error('Error verificando entitlement:', err);
+      return false;
+    }
+  }, []);
 
   /**
    * Verifica acceso a características
@@ -202,6 +315,29 @@ export const useSubscription = (): UseSubscriptionReturn => {
   const canUpgrade = subscriptionInfo?.plan === SubscriptionPlan.FREE || 
                      subscriptionInfo?.plan === SubscriptionPlan.BASIC;
 
+  /**
+   * Cancela la suscripción actual (para pruebas)
+   */
+  const cancelCurrentSubscription = useCallback(async (): Promise<boolean> => {
+    try {
+      setIsLoading(true);
+      const success = await subscriptionService.cancelCurrentSubscription();
+      
+      if (success) {
+        // Recargar información
+        await loadSubscriptionInfo();
+      }
+      
+      return success;
+    } catch (err: any) {
+      console.error('Error cancelando suscripción:', err);
+      setError(err.message || 'Error cancelando suscripción');
+      return false;
+    } finally {
+      setIsLoading(false);
+    }
+  }, [loadSubscriptionInfo]);
+
   return {
     // Estado
     subscriptionInfo,
@@ -213,9 +349,12 @@ export const useSubscription = (): UseSubscriptionReturn => {
     cancelSubscription,
     restorePurchases,
     refreshSubscription,
+    presentPaywall,
+    cancelCurrentSubscription,
     
     // Verificadores
     hasFeatureAccess,
+    checkEntitlement,
     checkUsageLimit,
     
     // Utilidades

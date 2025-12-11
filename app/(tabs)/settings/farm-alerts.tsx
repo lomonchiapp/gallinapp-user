@@ -56,11 +56,55 @@ interface Collaborator {
   role: string;
 }
 
+interface FarmNotificationPreferences {
+  enabled: boolean;
+  channels: {
+    push: boolean;
+    email: boolean;
+    sms: boolean;
+  };
+  categories: {
+    production: boolean;
+    financial: boolean;
+    alerts: boolean;
+    farm: boolean;
+    collaboration: boolean;
+    system: boolean;
+  };
+  quietHours: {
+    enabled: boolean;
+    startTime: string;
+    endTime: string;
+  };
+}
+
 export default function FarmAlertsScreen() {
   const { colors, isDark } = useTheme();
   const { currentFarm, updateFarm, collaborators } = useFarmStore();
   const [isSaving, setIsSaving] = useState(false);
-  const [isEditing, setIsEditing] = useState(false);
+  
+  // Estados para configuración general de notificaciones
+  const [preferences, setPreferences] = useState<FarmNotificationPreferences>({
+    enabled: true,
+    channels: {
+      push: true,
+      email: true,
+      sms: false,
+    },
+    categories: {
+      production: true,
+      financial: true,
+      alerts: true,
+      farm: true,
+      collaboration: true,
+      system: true,
+    },
+    quietHours: {
+      enabled: false,
+      startTime: '22:00',
+      endTime: '07:00',
+    },
+  });
   
   // Estados para alertas
   const [alerts, setAlerts] = useState<AlertConfig[]>([
@@ -146,32 +190,96 @@ export default function FarmAlertsScreen() {
   const [showAlertModal, setShowAlertModal] = useState(false);
   const [showCollaboratorModal, setShowCollaboratorModal] = useState(false);
 
-  // Mock de colaboradores (en producción, esto vendría de useFarmStore)
-  const farmCollaborators: Collaborator[] = collaborators || [];
+  // Mapear colaboradores del store al formato esperado
+  const farmCollaborators: Collaborator[] = (collaborators || []).map(collab => ({
+    id: collab.id,
+    name: collab.displayName || collab.email || 'Sin nombre',
+    email: collab.email,
+    role: collab.role || 'Colaborador',
+  }));
 
-  // Cargar configuración de alertas al montar
+  // Cargar configuración de alertas y preferencias al montar
   useEffect(() => {
     if (currentFarm?.settings) {
-      // Cargar configuración guardada si existe
-      const savedAlerts = (currentFarm.settings as any).alerts;
-      if (savedAlerts) {
+      const settings = currentFarm.settings;
+      const notifications = settings.notifications || {};
+      
+      // Cargar preferencias de notificaciones
+      setPreferences({
+        enabled: notifications.alertsEnabled ?? true,
+        channels: {
+          push: notifications.pushNotifications ?? true,
+          email: notifications.emailNotifications ?? true,
+          sms: notifications.smsNotifications ?? false,
+        },
+        categories: {
+          production: true,
+          financial: true,
+          alerts: true,
+          farm: true,
+          collaboration: true,
+          system: true,
+        },
+        quietHours: {
+          enabled: false,
+          startTime: '22:00',
+          endTime: '07:00',
+        },
+      });
+      
+      // Cargar configuración guardada de alertas si existe
+      const savedAlerts = (settings as any).alerts;
+      if (savedAlerts && Array.isArray(savedAlerts) && savedAlerts.length > 0) {
         setAlerts(savedAlerts);
       }
     }
   }, [currentFarm]);
 
-  const handleSave = async () => {
-    if (!currentFarm) {
-      showErrorAlert('Error', 'No hay granja seleccionada');
-      return;
+  // Función helper para guardar preferencias de notificaciones en Firestore
+  const savePreferencesToFirestore = async (updates: Partial<FarmNotificationPreferences>) => {
+    if (!currentFarm) return;
+
+    setIsSaving(true);
+    try {
+      const existingSettings = currentFarm.settings || {};
+      const updatedPreferences = {
+        ...preferences,
+        ...updates,
+      };
+
+      const updatesData: any = {
+        settings: {
+          ...existingSettings,
+          notifications: {
+            ...existingSettings.notifications,
+            alertsEnabled: updatedPreferences.enabled,
+            pushNotifications: updatedPreferences.channels.push,
+            emailNotifications: updatedPreferences.channels.email,
+            smsNotifications: updatedPreferences.channels.sms,
+          },
+        },
+      };
+
+      await updateFarm(currentFarm.id, updatesData);
+    } catch (error: any) {
+      console.error('Error guardando preferencias:', error);
+      showErrorAlert('Error', error.message || 'No se pudo guardar las preferencias');
+      throw error;
+    } finally {
+      setIsSaving(false);
     }
+  };
+
+  // Función helper para guardar alertas en Firestore
+  const saveToFirestore = async (updatedAlerts: AlertConfig[]) => {
+    if (!currentFarm) return;
 
     // Validaciones
-    for (const alert of alerts) {
+    for (const alert of updatedAlerts) {
       if (alert.enabled && alert.threshold !== undefined) {
         if (alert.threshold <= 0) {
           showErrorAlert('Error', `El umbral de ${alert.name} debe ser mayor a 0`);
-          return;
+          throw new Error(`Umbral inválido para ${alert.name}`);
         }
       }
     }
@@ -183,64 +291,85 @@ export default function FarmAlertsScreen() {
       const updates: any = {
         settings: {
           ...existingSettings,
-          alerts: alerts,
-          alertsEnabled: alerts.some(a => a.enabled),
+          alerts: updatedAlerts,
+          alertsEnabled: updatedAlerts.some(a => a.enabled),
         },
       };
 
       await updateFarm(currentFarm.id, updates);
-
-      setIsEditing(false);
-      showSuccessAlert('Éxito', 'Configuración de alertas actualizada correctamente');
     } catch (error: any) {
       console.error('Error guardando configuración de alertas:', error);
       showErrorAlert('Error', error.message || 'No se pudo guardar la configuración');
+      throw error; // Re-lanzar para que el componente pueda revertir el cambio
     } finally {
       setIsSaving(false);
     }
   };
 
-  const handleCancel = () => {
-    // Restaurar valores originales
-    if (currentFarm?.settings) {
-      const savedAlerts = (currentFarm.settings as any).alerts;
-      if (savedAlerts) {
-        setAlerts(savedAlerts);
-      }
-    }
-    setIsEditing(false);
-  };
-
-  const toggleAlert = (alertId: AlertType) => {
-    if (!isEditing) return;
-    setAlerts(alerts.map(a => 
+  const toggleAlert = async (alertId: AlertType) => {
+    const updatedAlerts = alerts.map(a => 
       a.id === alertId ? { ...a, enabled: !a.enabled } : a
-    ));
+    );
+    
+    // Actualizar estado local inmediatamente
+    setAlerts(updatedAlerts);
+    
+    // Guardar en Firestore
+    try {
+      await saveToFirestore(updatedAlerts);
+    } catch (error) {
+      // Revertir cambio en caso de error
+      setAlerts(alerts);
+    }
   };
 
-  const updateAlertThreshold = (alertId: AlertType, value: string) => {
+  const updateAlertThreshold = async (alertId: AlertType, value: string) => {
     const numValue = parseFloat(value);
-    if (isNaN(numValue)) return;
+    if (isNaN(numValue) || numValue <= 0) {
+      showErrorAlert('Error', 'El umbral debe ser un número mayor a 0');
+      return;
+    }
     
-    setAlerts(alerts.map(a => 
+    const updatedAlerts = alerts.map(a => 
       a.id === alertId ? { ...a, threshold: numValue } : a
-    ));
+    );
+    
+    // Actualizar estado local inmediatamente
+    setAlerts(updatedAlerts);
+    
+    // Guardar en Firestore
+    try {
+      await saveToFirestore(updatedAlerts);
+    } catch (error) {
+      // Revertir cambio en caso de error
+      setAlerts(alerts);
+    }
   };
 
   const openAlertConfig = (alert: AlertConfig) => {
-    if (!isEditing) return;
     setSelectedAlert(alert);
     setShowAlertModal(true);
   };
 
-  const saveAlertConfig = () => {
+  const saveAlertConfig = async () => {
     if (!selectedAlert) return;
     
-    setAlerts(alerts.map(a => 
+    const updatedAlerts = alerts.map(a => 
       a.id === selectedAlert.id ? selectedAlert : a
-    ));
-    setShowAlertModal(false);
-    setSelectedAlert(null);
+    );
+    
+    // Actualizar estado local inmediatamente
+    setAlerts(updatedAlerts);
+    
+    // Guardar en Firestore
+    try {
+      await saveToFirestore(updatedAlerts);
+      setShowAlertModal(false);
+      setSelectedAlert(null);
+    } catch (error) {
+      // Revertir cambio en caso de error
+      setAlerts(alerts);
+    }
   };
 
   const toggleCollaboratorNotification = (collaboratorId: string) => {
@@ -257,6 +386,173 @@ export default function FarmAlertsScreen() {
     });
   };
 
+  // Funciones para manejar preferencias de notificaciones
+  const toggleGeneral = async () => {
+    const newValue = !preferences.enabled;
+    setPreferences({ ...preferences, enabled: newValue });
+    
+    try {
+      await savePreferencesToFirestore({ enabled: newValue });
+    } catch (error) {
+      setPreferences({ ...preferences, enabled: !newValue });
+    }
+  };
+
+  const toggleChannel = async (channel: keyof FarmNotificationPreferences['channels']) => {
+    const newValue = !preferences.channels[channel];
+    const updatedChannels = { ...preferences.channels, [channel]: newValue };
+    setPreferences({
+      ...preferences,
+      channels: updatedChannels,
+    });
+    
+    try {
+      await savePreferencesToFirestore({ channels: updatedChannels });
+    } catch (error) {
+      setPreferences({
+        ...preferences,
+        channels: { ...preferences.channels, [channel]: !newValue },
+      });
+    }
+  };
+
+  const toggleCategory = async (category: keyof FarmNotificationPreferences['categories']) => {
+    const newValue = !preferences.categories[category];
+    const updatedCategories = { ...preferences.categories, [category]: newValue };
+    setPreferences({
+      ...preferences,
+      categories: updatedCategories,
+    });
+    
+    try {
+      await savePreferencesToFirestore({ categories: updatedCategories });
+    } catch (error) {
+      setPreferences({
+        ...preferences,
+        categories: { ...preferences.categories, [category]: !newValue },
+      });
+    }
+  };
+
+  const toggleQuietHours = async () => {
+    const newValue = !preferences.quietHours.enabled;
+    setPreferences({
+      ...preferences,
+      quietHours: { ...preferences.quietHours, enabled: newValue },
+    });
+    
+    try {
+      await savePreferencesToFirestore({ quietHours: { ...preferences.quietHours, enabled: newValue } });
+    } catch (error) {
+      setPreferences({
+        ...preferences,
+        quietHours: { ...preferences.quietHours, enabled: !newValue },
+      });
+    }
+  };
+
+  const updateQuietHoursTime = async (field: 'startTime' | 'endTime', value: string) => {
+    const timeRegex = /^([01]?[0-9]|2[0-3]):[0-5][0-9]$/;
+    if (!timeRegex.test(value)) {
+      showErrorAlert('Error', 'Las horas deben estar en formato HH:mm (ej: 22:00)');
+      return;
+    }
+
+    const updatedQuietHours = { ...preferences.quietHours, [field]: value };
+    setPreferences({
+      ...preferences,
+      quietHours: updatedQuietHours,
+    });
+    
+    try {
+      await savePreferencesToFirestore({ quietHours: updatedQuietHours });
+    } catch (error) {
+      setPreferences({
+        ...preferences,
+        quietHours: { ...preferences.quietHours, [field]: preferences.quietHours[field] },
+      });
+    }
+  };
+
+  const categories = [
+    {
+      id: 'production' as const,
+      name: 'Producción',
+      description: 'Producción de huevos, peso de lotes, etc.',
+      icon: 'egg',
+      color: colors.primary[500],
+    },
+    {
+      id: 'financial' as const,
+      name: 'Financieras',
+      description: 'Ventas, gastos, pagos pendientes',
+      icon: 'cash',
+      color: colors.success[500],
+    },
+    {
+      id: 'alerts' as const,
+      name: 'Alertas Críticas',
+      description: 'Mortalidad alta, producción baja, etc.',
+      icon: 'warning',
+      color: colors.error[500],
+    },
+    {
+      id: 'farm' as const,
+      name: 'Granja',
+      description: 'Actualizaciones de la granja',
+      icon: 'business',
+      color: colors.warning[500],
+    },
+    {
+      id: 'collaboration' as const,
+      name: 'Colaboración',
+      description: 'Invitaciones, permisos, accesos',
+      icon: 'people',
+      color: colors.primary[400],
+    },
+    {
+      id: 'system' as const,
+      name: 'Sistema',
+      description: 'Actualizaciones, mantenimiento',
+      icon: 'settings',
+      color: colors.text.secondary,
+    },
+  ];
+
+  const renderCategory = (category: typeof categories[0]) => (
+    <View
+      key={category.id}
+      style={[
+        styles.categoryItem,
+        {
+          backgroundColor: colors.background.secondary,
+          borderColor: preferences.categories[category.id] ? category.color : colors.border.light,
+        },
+      ]}
+    >
+      <View style={styles.categoryContent}>
+        <View style={[styles.categoryIcon, { backgroundColor: category.color + '20' }]}>
+          <Ionicons name={category.icon as any} size={24} color={category.color} />
+        </View>
+        <View style={styles.categoryInfo}>
+          <Text style={[styles.categoryName, { color: colors.text.primary }]}>
+            {category.name}
+          </Text>
+          <Text style={[styles.categoryDescription, { color: colors.text.secondary }]}>
+            {category.description}
+          </Text>
+        </View>
+        <Switch
+          value={preferences.categories[category.id] && preferences.enabled}
+          onValueChange={() => preferences.enabled && toggleCategory(category.id)}
+          disabled={!preferences.enabled || isSaving}
+          trackColor={{ false: colors.border.light, true: category.color }}
+          thumbColor={colors.background.primary}
+        />
+      </View>
+    </View>
+  );
+
   const renderAlertItem = (alert: AlertConfig) => (
     <TouchableOpacity
       key={alert.id}
@@ -268,7 +564,7 @@ export default function FarmAlertsScreen() {
         },
       ]}
       onPress={() => openAlertConfig(alert)}
-      disabled={!isEditing}
+      disabled={isSaving}
       activeOpacity={0.7}
     >
       <View style={styles.alertContent}>
@@ -300,7 +596,7 @@ export default function FarmAlertsScreen() {
         <Switch
           value={alert.enabled}
           onValueChange={() => toggleAlert(alert.id)}
-          disabled={!isEditing}
+          disabled={isSaving}
           trackColor={{ false: colors.border.light, true: colors.primary[500] }}
           thumbColor={colors.background.primary}
         />
@@ -351,15 +647,15 @@ export default function FarmAlertsScreen() {
         <View style={styles.collaboratorContent}>
           <View style={[styles.collaboratorAvatar, { backgroundColor: colors.primary[100] }]}>
             <Text style={[styles.collaboratorInitial, { color: colors.primary[500] }]}>
-              {collaborator.name.charAt(0).toUpperCase()}
+              {(collaborator.name || collaborator.email || 'U').charAt(0).toUpperCase()}
             </Text>
           </View>
           <View style={styles.collaboratorInfo}>
             <Text style={[styles.collaboratorName, { color: colors.text.primary }]}>
-              {collaborator.name}
+              {collaborator.name || collaborator.email || 'Sin nombre'}
             </Text>
             <Text style={[styles.collaboratorRole, { color: colors.text.secondary }]}>
-              {collaborator.role} • {collaborator.email}
+              {collaborator.role || 'Colaborador'} • {collaborator.email || 'Sin email'}
             </Text>
           </View>
           {isSelected && (
@@ -408,12 +704,8 @@ export default function FarmAlertsScreen() {
           onBackPress={() => router.back()}
           title1="Alertas"
           title2={currentFarm.name}
-          showEditButton={true}
-          isEditMode={isEditing}
-          onToggleEditMode={() => setIsEditing(true)}
-          onSave={handleSave}
-          onCancel={handleCancel}
-          isSaving={isSaving}
+          subtitle="Configuraciones del sistema"
+          showEditButton={false}
         />
 
         <ScrollView
@@ -427,17 +719,231 @@ export default function FarmAlertsScreen() {
               <Ionicons name="information-circle" size={24} color={colors.primary[500]} />
               <View style={styles.infoContent}>
                 <Text style={[styles.infoTitle, { color: colors.text.primary }]}>
-                  Sistema de Alertas
+                  Configuración de Notificaciones de la Granja
                 </Text>
                 <Text style={[styles.infoText, { color: colors.text.secondary }]}>
-                  Configura los umbrales y destinatarios de las alertas de tu granja. 
-                  Las alertas notificarán automáticamente cuando se cumplan las condiciones establecidas.
-                </Text>
-                <Text style={[styles.infoNote, { color: colors.warning[600] }]}>
-                  Nota: Los usuarios configuran si reciben estas notificaciones en su perfil personal.
+                  Configura cómo y cuándo se envían las notificaciones de esta granja. 
+                  Los usuarios pueden personalizar qué notificaciones reciben en su perfil personal.
                 </Text>
               </View>
             </View>
+          </Card>
+
+          {/* Configuración General */}
+          <Card style={styles.card}>
+            <View style={styles.cardHeader}>
+              <Ionicons name="notifications" size={24} color={colors.primary[500]} />
+              <Text style={[styles.sectionTitle, { color: colors.text.primary }]}>
+                Configuración General
+              </Text>
+            </View>
+
+            <View style={styles.switchContainer}>
+              <View style={styles.switchItem}>
+                <View style={styles.switchItemLeft}>
+                  <View style={[styles.switchIcon, { backgroundColor: colors.primary[100] }]}>
+                    <Ionicons name="notifications" size={20} color={colors.primary[500]} />
+                  </View>
+                  <View style={styles.switchInfo}>
+                    <Text style={[styles.switchLabel, { color: colors.text.primary }]}>
+                      Activar Notificaciones
+                    </Text>
+                    <Text style={[styles.switchDescription, { color: colors.text.secondary }]}>
+                      Habilitar o deshabilitar todas las notificaciones de la granja
+                    </Text>
+                  </View>
+                </View>
+                <Switch
+                  value={preferences.enabled}
+                  onValueChange={toggleGeneral}
+                  disabled={isSaving}
+                  trackColor={{ false: colors.border.light, true: colors.primary[500] }}
+                  thumbColor={colors.background.primary}
+                />
+              </View>
+            </View>
+          </Card>
+
+          {/* Canales de Notificación */}
+          <Card style={styles.card}>
+            <View style={styles.cardHeader}>
+              <Ionicons name="send" size={24} color={colors.success[500]} />
+              <Text style={[styles.sectionTitle, { color: colors.text.primary }]}>
+                Canales de Notificación
+              </Text>
+            </View>
+
+            <View style={styles.switchContainer}>
+              <View style={styles.switchItem}>
+                <View style={styles.switchItemLeft}>
+                  <View style={[styles.switchIcon, { backgroundColor: colors.primary[100] }]}>
+                    <Ionicons name="phone-portrait" size={20} color={colors.primary[500]} />
+                  </View>
+                  <View style={styles.switchInfo}>
+                    <Text style={[styles.switchLabel, { color: colors.text.primary }]}>
+                      Notificaciones Push
+                    </Text>
+                    <Text style={[styles.switchDescription, { color: colors.text.secondary }]}>
+                      Enviar notificaciones push a los dispositivos
+                    </Text>
+                  </View>
+                </View>
+                <Switch
+                  value={preferences.channels.push && preferences.enabled}
+                  onValueChange={() => preferences.enabled && toggleChannel('push')}
+                  disabled={!preferences.enabled || isSaving}
+                  trackColor={{ false: colors.border.light, true: colors.primary[500] }}
+                  thumbColor={colors.background.primary}
+                />
+              </View>
+
+              <View style={styles.switchItem}>
+                <View style={styles.switchItemLeft}>
+                  <View style={[styles.switchIcon, { backgroundColor: colors.success[100] }]}>
+                    <Ionicons name="mail" size={20} color={colors.success[500]} />
+                  </View>
+                  <View style={styles.switchInfo}>
+                    <Text style={[styles.switchLabel, { color: colors.text.primary }]}>
+                      Notificaciones por Email
+                    </Text>
+                    <Text style={[styles.switchDescription, { color: colors.text.secondary }]}>
+                      Enviar notificaciones importantes por correo
+                    </Text>
+                  </View>
+                </View>
+                <Switch
+                  value={preferences.channels.email && preferences.enabled}
+                  onValueChange={() => preferences.enabled && toggleChannel('email')}
+                  disabled={!preferences.enabled || isSaving}
+                  trackColor={{ false: colors.border.light, true: colors.success[500] }}
+                  thumbColor={colors.background.primary}
+                />
+              </View>
+
+              <View style={styles.switchItem}>
+                <View style={styles.switchItemLeft}>
+                  <View style={[styles.switchIcon, { backgroundColor: colors.warning[100] }]}>
+                    <Ionicons name="chatbubble" size={20} color={colors.warning[500]} />
+                  </View>
+                  <View style={styles.switchInfo}>
+                    <Text style={[styles.switchLabel, { color: colors.text.primary }]}>
+                      Notificaciones por SMS
+                    </Text>
+                    <Text style={[styles.switchDescription, { color: colors.text.secondary }]}>
+                      Enviar notificaciones críticas por mensaje de texto
+                    </Text>
+                  </View>
+                </View>
+                <Switch
+                  value={preferences.channels.sms && preferences.enabled}
+                  onValueChange={() => preferences.enabled && toggleChannel('sms')}
+                  disabled={!preferences.enabled || isSaving}
+                  trackColor={{ false: colors.border.light, true: colors.warning[500] }}
+                  thumbColor={colors.background.primary}
+                />
+              </View>
+            </View>
+          </Card>
+
+          {/* Categorías de Notificaciones */}
+          <Card style={styles.card}>
+            <View style={styles.cardHeader}>
+              <Ionicons name="list" size={24} color={colors.warning[500]} />
+              <Text style={[styles.sectionTitle, { color: colors.text.primary }]}>
+                Categorías de Notificaciones
+              </Text>
+            </View>
+
+            <Text style={[styles.sectionDescription, { color: colors.text.secondary }]}>
+              Elige qué tipos de notificaciones se envían desde esta granja
+            </Text>
+
+            <View style={styles.categoriesList}>
+              {categories.map(renderCategory)}
+            </View>
+          </Card>
+
+          {/* Horarios de No Molestar */}
+          <Card style={styles.card}>
+            <View style={styles.cardHeader}>
+              <Ionicons name="moon" size={24} color={colors.primary[500]} />
+              <Text style={[styles.sectionTitle, { color: colors.text.primary }]}>
+                Horarios de No Molestar
+              </Text>
+            </View>
+
+            <View style={styles.switchContainer}>
+              <View style={styles.switchItem}>
+                <View style={styles.switchItemLeft}>
+                  <View style={[styles.switchIcon, { backgroundColor: colors.primary[100] }]}>
+                    <Ionicons name="moon" size={20} color={colors.primary[500]} />
+                  </View>
+                  <View style={styles.switchInfo}>
+                    <Text style={[styles.switchLabel, { color: colors.text.primary }]}>
+                      Activar Horarios
+                    </Text>
+                    <Text style={[styles.switchDescription, { color: colors.text.secondary }]}>
+                      Silenciar notificaciones durante horas específicas
+                    </Text>
+                  </View>
+                </View>
+                <Switch
+                  value={preferences.quietHours.enabled && preferences.enabled}
+                  onValueChange={() => preferences.enabled && toggleQuietHours()}
+                  disabled={!preferences.enabled || isSaving}
+                  trackColor={{ false: colors.border.light, true: colors.primary[500] }}
+                  thumbColor={colors.background.primary}
+                />
+              </View>
+            </View>
+
+            {preferences.quietHours.enabled && (
+              <View style={styles.timePickerContainer}>
+                <View style={styles.timePickerItem}>
+                  <Text style={[styles.timePickerLabel, { color: colors.text.primary }]}>
+                    Hora de Inicio
+                  </Text>
+                  <TextInput
+                    style={[
+                      styles.timeInput,
+                      {
+                        backgroundColor: colors.background.secondary,
+                        color: colors.text.primary,
+                        borderColor: colors.border.light,
+                      },
+                    ]}
+                    value={preferences.quietHours.startTime}
+                    onChangeText={(value) => updateQuietHoursTime('startTime', value)}
+                    placeholder="22:00"
+                    placeholderTextColor={colors.text.tertiary}
+                    keyboardType="default"
+                    editable={!isSaving}
+                  />
+                </View>
+
+                <View style={styles.timePickerItem}>
+                  <Text style={[styles.timePickerLabel, { color: colors.text.primary }]}>
+                    Hora de Fin
+                  </Text>
+                  <TextInput
+                    style={[
+                      styles.timeInput,
+                      {
+                        backgroundColor: colors.background.secondary,
+                        color: colors.text.primary,
+                        borderColor: colors.border.light,
+                      },
+                    ]}
+                    value={preferences.quietHours.endTime}
+                    onChangeText={(value) => updateQuietHoursTime('endTime', value)}
+                    placeholder="07:00"
+                    placeholderTextColor={colors.text.tertiary}
+                    keyboardType="default"
+                    editable={!isSaving}
+                  />
+                </View>
+              </View>
+            )}
           </Card>
 
           {/* Alertas Operativas */}
@@ -515,7 +1021,23 @@ export default function FarmAlertsScreen() {
               <Text style={[styles.modalTitle, { color: colors.text.primary }]}>
                 {selectedAlert?.name}
               </Text>
-              <TouchableOpacity onPress={() => setShowAlertModal(false)}>
+              <TouchableOpacity 
+                onPress={async () => {
+                  // Guardar cambios automáticamente antes de cerrar
+                  if (selectedAlert) {
+                    try {
+                      await saveAlertConfig();
+                    } catch (error) {
+                      // Si hay error, cerrar de todas formas
+                      setShowAlertModal(false);
+                      setSelectedAlert(null);
+                    }
+                  } else {
+                    setShowAlertModal(false);
+                  }
+                }}
+                disabled={isSaving}
+              >
                 <Ionicons name="close" size={24} color={colors.text.primary} />
               </TouchableOpacity>
             </View>
@@ -540,10 +1062,13 @@ export default function FarmAlertsScreen() {
                       value={selectedAlert.threshold.toString()}
                       onChangeText={(value) => {
                         const numValue = parseFloat(value) || 0;
-                        setSelectedAlert({ ...selectedAlert, threshold: numValue });
+                        if (selectedAlert) {
+                          setSelectedAlert({ ...selectedAlert, threshold: numValue });
+                        }
                       }}
                       keyboardType="decimal-pad"
                       placeholder="0"
+                      editable={!isSaving}
                     />
                     <Text style={[styles.thresholdUnit, { color: colors.text.secondary }]}>
                       {selectedAlert.thresholdUnit}
@@ -567,9 +1092,12 @@ export default function FarmAlertsScreen() {
                   </View>
                   <Switch
                     value={selectedAlert?.sendInApp || false}
-                    onValueChange={(value) => 
-                      setSelectedAlert(selectedAlert ? { ...selectedAlert, sendInApp: value } : null)
-                    }
+                    onValueChange={(value) => {
+                      if (selectedAlert) {
+                        setSelectedAlert({ ...selectedAlert, sendInApp: value });
+                      }
+                    }}
+                    disabled={isSaving}
                     trackColor={{ false: colors.border.light, true: colors.primary[500] }}
                     thumbColor={colors.background.primary}
                   />
@@ -584,9 +1112,12 @@ export default function FarmAlertsScreen() {
                   </View>
                   <Switch
                     value={selectedAlert?.sendPush || false}
-                    onValueChange={(value) => 
-                      setSelectedAlert(selectedAlert ? { ...selectedAlert, sendPush: value } : null)
-                    }
+                    onValueChange={(value) => {
+                      if (selectedAlert) {
+                        setSelectedAlert({ ...selectedAlert, sendPush: value });
+                      }
+                    }}
+                    disabled={isSaving}
                     trackColor={{ false: colors.border.light, true: colors.primary[500] }}
                     thumbColor={colors.background.primary}
                   />
@@ -608,9 +1139,12 @@ export default function FarmAlertsScreen() {
                   </View>
                   <Switch
                     value={selectedAlert?.notifyOwner || false}
-                    onValueChange={(value) => 
-                      setSelectedAlert(selectedAlert ? { ...selectedAlert, notifyOwner: value } : null)
-                    }
+                    onValueChange={(value) => {
+                      if (selectedAlert) {
+                        setSelectedAlert({ ...selectedAlert, notifyOwner: value });
+                      }
+                    }}
+                    disabled={isSaving}
                     trackColor={{ false: colors.border.light, true: colors.primary[500] }}
                     thumbColor={colors.background.primary}
                   />
@@ -630,20 +1164,17 @@ export default function FarmAlertsScreen() {
 
             <View style={styles.modalFooter}>
               <TouchableOpacity
-                style={[styles.modalButton, styles.cancelButton, { borderColor: colors.border.light }]}
-                onPress={() => setShowAlertModal(false)}
-              >
-                <Text style={[styles.cancelButtonText, { color: colors.text.secondary }]}>
-                  Cancelar
-                </Text>
-              </TouchableOpacity>
-              <TouchableOpacity
                 style={[styles.modalButton, styles.saveButton, { backgroundColor: colors.primary[500] }]}
                 onPress={saveAlertConfig}
+                disabled={isSaving}
               >
-                <Text style={[styles.saveButtonText, { color: colors.text.inverse }]}>
-                  Guardar
-                </Text>
+                {isSaving ? (
+                  <ActivityIndicator size="small" color={colors.text.inverse} />
+                ) : (
+                  <Text style={[styles.saveButtonText, { color: colors.text.inverse }]}>
+                    Guardar
+                  </Text>
+                )}
               </TouchableOpacity>
             </View>
           </View>
@@ -727,6 +1258,11 @@ const styles = StyleSheet.create({
     fontSize: typography.sizes.lg,
     fontWeight: typography.weights.bold as '700',
   },
+  sectionDescription: {
+    fontSize: typography.sizes.sm,
+    marginBottom: spacing[4],
+    lineHeight: 20,
+  },
   emptyState: {
     flex: 1,
     justifyContent: 'center',
@@ -759,6 +1295,97 @@ const styles = StyleSheet.create({
     fontSize: typography.sizes.xs,
     lineHeight: 18,
     fontStyle: 'italic',
+  },
+  // Switches
+  switchContainer: {
+    gap: spacing[2],
+  },
+  switchItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: spacing[3],
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(0,0,0,0.05)',
+  },
+  switchItemLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+    gap: spacing[3],
+  },
+  switchIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  switchInfo: {
+    flex: 1,
+  },
+  switchLabel: {
+    fontSize: typography.sizes.base,
+    fontWeight: typography.weights.semibold as '600',
+    marginBottom: spacing[1] / 2,
+  },
+  switchDescription: {
+    fontSize: typography.sizes.sm,
+  },
+  // Categories
+  categoriesList: {
+    gap: spacing[3],
+  },
+  categoryItem: {
+    borderRadius: borderRadius.lg,
+    borderWidth: 2,
+    padding: spacing[3],
+    ...shadows.sm,
+  },
+  categoryContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing[3],
+  },
+  categoryIcon: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  categoryInfo: {
+    flex: 1,
+  },
+  categoryName: {
+    fontSize: typography.sizes.base,
+    fontWeight: typography.weights.bold as '700',
+    marginBottom: spacing[1] / 2,
+  },
+  categoryDescription: {
+    fontSize: typography.sizes.sm,
+  },
+  // Time Picker
+  timePickerContainer: {
+    flexDirection: 'row',
+    gap: spacing[3],
+    marginTop: spacing[3],
+  },
+  timePickerItem: {
+    flex: 1,
+  },
+  timePickerLabel: {
+    fontSize: typography.sizes.sm,
+    fontWeight: typography.weights.semibold as '600',
+    marginBottom: spacing[2],
+  },
+  timeInput: {
+    borderWidth: 1,
+    borderRadius: borderRadius.md,
+    paddingHorizontal: spacing[3],
+    paddingVertical: spacing[2],
+    fontSize: typography.sizes.base,
+    textAlign: 'center',
   },
   // Alerts List
   alertsList: {

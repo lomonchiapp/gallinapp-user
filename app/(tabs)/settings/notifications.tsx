@@ -24,6 +24,7 @@ import { borderRadius, shadows, spacing, typography } from '../../../src/constan
 import { DEFAULT_USER_SETTINGS } from '../../../src/types/settings';
 import { showErrorAlert, showSuccessAlert } from '../../../src/utils/alert.service';
 import { useAuthStore } from '../../../src/stores/authStore';
+import { getUserSettings, updateUserSettings } from '../../../src/services/settings/user-settings.service';
 
 interface NotificationPreferences {
   enabled: boolean;
@@ -50,8 +51,8 @@ interface NotificationPreferences {
 export default function NotificationsScreen() {
   const { colors, isDark } = useTheme();
   const { user } = useAuthStore();
+  const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
-  const [isEditing, setIsEditing] = useState(false);
 
   // Estados para preferencias
   const [preferences, setPreferences] = useState<NotificationPreferences>({
@@ -61,78 +62,145 @@ export default function NotificationsScreen() {
     quietHours: { ...DEFAULT_USER_SETTINGS.notifications.quietHours },
   });
 
-  // Cargar preferencias al montar (aquí se conectaría con un servicio real)
+  // Cargar preferencias al montar
   useEffect(() => {
-    // TODO: Cargar preferencias del usuario desde Firebase/Store
-    // Por ahora usamos valores por defecto
+    const loadPreferences = async () => {
+      if (!user?.uid) return;
+      
+      setIsLoading(true);
+      try {
+        const userSettings = await getUserSettings(user.uid);
+        if (userSettings.notifications) {
+          setPreferences({
+            enabled: userSettings.notifications.enabled,
+            channels: { ...userSettings.notifications.channels },
+            categories: { ...userSettings.notifications.categories },
+            quietHours: { ...userSettings.notifications.quietHours },
+          });
+        }
+      } catch (error: any) {
+        console.error('Error cargando preferencias:', error);
+        showErrorAlert('Error', 'No se pudieron cargar las preferencias');
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    loadPreferences();
   }, [user]);
 
-  const handleSave = async () => {
-    // Validaciones
-    if (preferences.quietHours.enabled) {
-      const timeRegex = /^([01]?[0-9]|2[0-3]):[0-5][0-9]$/;
-      if (!timeRegex.test(preferences.quietHours.startTime) || !timeRegex.test(preferences.quietHours.endTime)) {
-        showErrorAlert('Error', 'Las horas deben estar en formato HH:mm (ej: 22:00)');
-        return;
-      }
-    }
+  // Función helper para guardar en Firestore
+  const saveToFirestore = async (updates: Partial<NotificationPreferences>) => {
+    if (!user?.uid) return;
 
     setIsSaving(true);
     try {
-      // TODO: Guardar en Firebase/Store
-      // await updateUserSettings(user.uid, { notifications: preferences });
-      
-      setIsEditing(false);
-      showSuccessAlert('Éxito', 'Preferencias de notificaciones actualizadas correctamente');
+      await updateUserSettings(user.uid, {
+        notifications: {
+          ...preferences,
+          ...updates,
+        },
+      });
     } catch (error: any) {
       console.error('Error guardando preferencias:', error);
       showErrorAlert('Error', error.message || 'No se pudo guardar las preferencias');
+      throw error; // Re-lanzar para que el componente pueda revertir el cambio
     } finally {
       setIsSaving(false);
     }
   };
 
-  const handleCancel = () => {
-    // Restaurar valores originales
-    setPreferences({
-      enabled: DEFAULT_USER_SETTINGS.notifications.enabled,
-      channels: { ...DEFAULT_USER_SETTINGS.notifications.channels },
-      categories: { ...DEFAULT_USER_SETTINGS.notifications.categories },
-      quietHours: { ...DEFAULT_USER_SETTINGS.notifications.quietHours },
-    });
-    setIsEditing(false);
+  const toggleGeneral = async () => {
+    const newValue = !preferences.enabled;
+    setPreferences({ ...preferences, enabled: newValue });
+    
+    try {
+      await saveToFirestore({ enabled: newValue });
+    } catch (error) {
+      // Revertir cambio en caso de error
+      setPreferences({ ...preferences, enabled: !newValue });
+    }
   };
 
-  const toggleGeneral = () => {
-    setPreferences({ ...preferences, enabled: !preferences.enabled });
-  };
-
-  const toggleChannel = (channel: keyof NotificationPreferences['channels']) => {
-    setPreferences({
-      ...preferences,
-      channels: { ...preferences.channels, [channel]: !preferences.channels[channel] },
-    });
-  };
-
-  const toggleCategory = (category: keyof NotificationPreferences['categories']) => {
+  const toggleChannel = async (channel: keyof NotificationPreferences['channels']) => {
+    const newValue = !preferences.channels[channel];
+    const updatedChannels = { ...preferences.channels, [channel]: newValue };
     setPreferences({
       ...preferences,
-      categories: { ...preferences.categories, [category]: !preferences.categories[category] },
+      channels: updatedChannels,
     });
+    
+    try {
+      await saveToFirestore({ channels: updatedChannels });
+    } catch (error) {
+      // Revertir cambio en caso de error
+      setPreferences({
+        ...preferences,
+        channels: { ...preferences.channels, [channel]: !newValue },
+      });
+    }
   };
 
-  const toggleQuietHours = () => {
+  const toggleCategory = async (category: keyof NotificationPreferences['categories']) => {
+    const newValue = !preferences.categories[category];
+    const updatedCategories = { ...preferences.categories, [category]: newValue };
     setPreferences({
       ...preferences,
-      quietHours: { ...preferences.quietHours, enabled: !preferences.quietHours.enabled },
+      categories: updatedCategories,
     });
+    
+    try {
+      await saveToFirestore({ categories: updatedCategories });
+    } catch (error) {
+      // Revertir cambio en caso de error
+      setPreferences({
+        ...preferences,
+        categories: { ...preferences.categories, [category]: !newValue },
+      });
+    }
   };
 
-  const updateQuietHoursTime = (field: 'startTime' | 'endTime', value: string) => {
+  const toggleQuietHours = async () => {
+    const newValue = !preferences.quietHours.enabled;
     setPreferences({
       ...preferences,
-      quietHours: { ...preferences.quietHours, [field]: value },
+      quietHours: { ...preferences.quietHours, enabled: newValue },
     });
+    
+    try {
+      await saveToFirestore({ quietHours: { ...preferences.quietHours, enabled: newValue } });
+    } catch (error) {
+      // Revertir cambio en caso de error
+      setPreferences({
+        ...preferences,
+        quietHours: { ...preferences.quietHours, enabled: !newValue },
+      });
+    }
+  };
+
+  const updateQuietHoursTime = async (field: 'startTime' | 'endTime', value: string) => {
+    // Validar formato de hora
+    const timeRegex = /^([01]?[0-9]|2[0-3]):[0-5][0-9]$/;
+    if (!timeRegex.test(value)) {
+      showErrorAlert('Error', 'Las horas deben estar en formato HH:mm (ej: 22:00)');
+      return;
+    }
+
+    const updatedQuietHours = { ...preferences.quietHours, [field]: value };
+    setPreferences({
+      ...preferences,
+      quietHours: updatedQuietHours,
+    });
+    
+    try {
+      await saveToFirestore({ quietHours: updatedQuietHours });
+    } catch (error) {
+      // Revertir cambio en caso de error
+      setPreferences({
+        ...preferences,
+        quietHours: { ...preferences.quietHours, [field]: preferences.quietHours[field] },
+      });
+    }
   };
 
   const categories = [
@@ -205,8 +273,8 @@ export default function NotificationsScreen() {
         </View>
         <Switch
           value={preferences.categories[category.id] && preferences.enabled}
-          onValueChange={() => isEditing && toggleCategory(category.id)}
-          disabled={!isEditing || !preferences.enabled}
+          onValueChange={() => preferences.enabled && toggleCategory(category.id)}
+          disabled={!preferences.enabled || isSaving}
           trackColor={{ false: colors.border.light, true: category.color }}
           thumbColor={colors.background.primary}
         />
@@ -226,12 +294,39 @@ export default function NotificationsScreen() {
             showBack={true}
             onBackPress={() => router.back()}
             title1="Notificaciones"
+            subtitle="Configuraciones del sistema"
             showEditButton={false}
           />
           <View style={styles.emptyState}>
             <Ionicons name="notifications-outline" size={64} color={colors.text.secondary} />
             <Text style={[styles.emptyStateText, { color: colors.text.secondary }]}>
               No hay usuario autenticado
+            </Text>
+          </View>
+        </View>
+      </ScreenWrapper>
+    );
+  }
+
+  if (isLoading) {
+    return (
+      <ScreenWrapper transitionType="fade">
+        <View style={[styles.container, { backgroundColor: colors.background.primary }]}>
+          <AppHeader
+            variant="fixed"
+            enableBlur={false}
+            showFarmSwitcher={false}
+            showThemeToggle={false}
+            showBack={true}
+            onBackPress={() => router.back()}
+            title1="Notificaciones"
+            subtitle="Configuraciones del sistema"
+            showEditButton={false}
+          />
+          <View style={styles.emptyState}>
+            <Ionicons name="notifications-outline" size={64} color={colors.text.secondary} />
+            <Text style={[styles.emptyStateText, { color: colors.text.secondary }]}>
+              Cargando preferencias...
             </Text>
           </View>
         </View>
@@ -252,12 +347,8 @@ export default function NotificationsScreen() {
           onBackPress={() => router.back()}
           title1="Notificaciones"
           title2="Preferencias Personales"
-          showEditButton={true}
-          isEditMode={isEditing}
-          onToggleEditMode={() => setIsEditing(true)}
-          onSave={handleSave}
-          onCancel={handleCancel}
-          isSaving={isSaving}
+          subtitle="Configuraciones del sistema"
+          showEditButton={false}
         />
 
         <ScrollView
@@ -307,8 +398,8 @@ export default function NotificationsScreen() {
                 </View>
                 <Switch
                   value={preferences.enabled}
-                  onValueChange={() => isEditing && toggleGeneral()}
-                  disabled={!isEditing}
+                  onValueChange={toggleGeneral}
+                  disabled={isSaving}
                   trackColor={{ false: colors.border.light, true: colors.primary[500] }}
                   thumbColor={colors.background.primary}
                 />
@@ -342,8 +433,8 @@ export default function NotificationsScreen() {
                 </View>
                 <Switch
                   value={preferences.channels.push && preferences.enabled}
-                  onValueChange={() => isEditing && toggleChannel('push')}
-                  disabled={!isEditing || !preferences.enabled}
+                  onValueChange={() => preferences.enabled && toggleChannel('push')}
+                  disabled={!preferences.enabled || isSaving}
                   trackColor={{ false: colors.border.light, true: colors.primary[500] }}
                   thumbColor={colors.background.primary}
                 />
@@ -365,8 +456,8 @@ export default function NotificationsScreen() {
                 </View>
                 <Switch
                   value={preferences.channels.email && preferences.enabled}
-                  onValueChange={() => isEditing && toggleChannel('email')}
-                  disabled={!isEditing || !preferences.enabled}
+                  onValueChange={() => preferences.enabled && toggleChannel('email')}
+                  disabled={!preferences.enabled || isSaving}
                   trackColor={{ false: colors.border.light, true: colors.success[500] }}
                   thumbColor={colors.background.primary}
                 />
@@ -388,8 +479,8 @@ export default function NotificationsScreen() {
                 </View>
                 <Switch
                   value={preferences.channels.sms && preferences.enabled}
-                  onValueChange={() => isEditing && toggleChannel('sms')}
-                  disabled={!isEditing || !preferences.enabled}
+                  onValueChange={() => preferences.enabled && toggleChannel('sms')}
+                  disabled={!preferences.enabled || isSaving}
                   trackColor={{ false: colors.border.light, true: colors.warning[500] }}
                   thumbColor={colors.background.primary}
                 />
@@ -441,8 +532,8 @@ export default function NotificationsScreen() {
                 </View>
                 <Switch
                   value={preferences.quietHours.enabled && preferences.enabled}
-                  onValueChange={() => isEditing && toggleQuietHours()}
-                  disabled={!isEditing || !preferences.enabled}
+                  onValueChange={() => preferences.enabled && toggleQuietHours()}
+                  disabled={!preferences.enabled || isSaving}
                   trackColor={{ false: colors.border.light, true: colors.primary[500] }}
                   thumbColor={colors.background.primary}
                 />
@@ -465,11 +556,11 @@ export default function NotificationsScreen() {
                       },
                     ]}
                     value={preferences.quietHours.startTime}
-                    onChangeText={(value) => isEditing && updateQuietHoursTime('startTime', value)}
+                    onChangeText={(value) => updateQuietHoursTime('startTime', value)}
                     placeholder="22:00"
                     placeholderTextColor={colors.text.tertiary}
                     keyboardType="default"
-                    editable={isEditing}
+                    editable={!isSaving}
                   />
                 </View>
 
@@ -487,11 +578,11 @@ export default function NotificationsScreen() {
                       },
                     ]}
                     value={preferences.quietHours.endTime}
-                    onChangeText={(value) => isEditing && updateQuietHoursTime('endTime', value)}
+                    onChangeText={(value) => updateQuietHoursTime('endTime', value)}
                     placeholder="07:00"
                     placeholderTextColor={colors.text.tertiary}
                     keyboardType="default"
-                    editable={isEditing}
+                    editable={!isSaving}
                   />
                 </View>
               </View>

@@ -44,6 +44,7 @@ interface AppHeaderProps {
   title?: string; // Deprecated: usar title1 y title2
   title1?: string;
   title2?: string;
+  subtitle?: string; // Subtítulo con texto gris y weight light
   showFarmButton?: boolean; // Botón grande con shed.png
   showFarmSettings?: boolean; // Botón grande con settings.png
   // Botón de editar/guardar genérico para formularios
@@ -68,6 +69,7 @@ export default function AppHeader({
   title,
   title1,
   title2,
+  subtitle,
   showFarmButton = false,
   showFarmSettings = false,
   showEditButton = false,
@@ -186,6 +188,11 @@ export default function AppHeader({
             {title2 && (
               <Text style={[styles.title2, { color: colors.primary[500] }]}>
                 {title2}
+              </Text>
+            )}
+            {subtitle && (
+              <Text style={[styles.subtitle, { color: colors.text.secondary }]}>
+                {subtitle}
               </Text>
             )}
             {showDate && (
@@ -477,6 +484,11 @@ const styles = StyleSheet.create({
   title2: {
     fontSize: typography.sizes['2xl'],
     fontWeight: typography.weights.semibold as '600',
+  },
+  subtitle: {
+    fontSize: typography.sizes.sm,
+    fontWeight: typography.weights.light as '300',
+    marginTop: spacing[1] / 2,
   },
   dateText: {
     fontSize: typography.sizes.base,
