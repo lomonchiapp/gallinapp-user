@@ -10,6 +10,7 @@ import { StyleSheet, View } from 'react-native';
 import { useTheme } from '../../components/theme-provider';
 import { DashboardContent } from '../../src/components/dashboard/DashboardContent';
 import { FarmOnboardingScreen } from '../../src/components/dashboard/FarmOnboardingScreen';
+import { PlanOnboardingScreen } from '../../src/components/onboarding/PlanOnboardingScreen';
 import AppHeader from '../../src/components/layouts/AppHeader';
 import { ScreenWrapper } from '../../src/components/navigation/ScreenWrapper';
 import { initializePushNotifications } from '../../src/services/push-notifications.service';
@@ -269,6 +270,26 @@ export default function DashboardScreen() {
     .filter(lote => lote.ganancias > 0)
     .sort((a, b) => b.margenGanancia - a.margenGanancia)
     .slice(0, 3);
+
+  // Verificar si necesita onboarding de planes primero (usuario nuevo sin organización)
+  const needsPlanOnboarding = !multiTenantUser?.currentOrganizationId && 
+                               (!multiTenantUser?.organizations || 
+                                Object.keys(multiTenantUser?.organizations || {}).length === 0);
+
+  // Si necesita onboarding de planes, mostrarlo primero
+  if (needsPlanOnboarding && !farmsLoading) {
+    return (
+      <ScreenWrapper transitionType="fade">
+        <View style={[styles.container, { backgroundColor: colors.background.primary }]}>
+          <StatusBar style={isDark ? 'light' : 'dark'} />
+          <PlanOnboardingScreen onPlanSelected={() => {
+            // Después de seleccionar plan, continuar al onboarding de granja
+            console.log('✅ Plan seleccionado, continuando al onboarding de granja');
+          }} />
+        </View>
+      </ScreenWrapper>
+    );
+  }
 
   // Si no hay granja, mostrar pantalla de onboarding
   // Solo mostrar onboarding si no está cargando y no hay granjas

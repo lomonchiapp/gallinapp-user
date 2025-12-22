@@ -8,23 +8,22 @@ import { router } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import React, { useEffect, useState } from 'react';
 import {
-  ScrollView,
-  StyleSheet,
-  Switch,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  View,
+    ScrollView,
+    StyleSheet,
+    Switch,
+    Text,
+    TextInput,
+    View
 } from 'react-native';
 import { useTheme } from '../../../components/theme-provider';
 import AppHeader from '../../../src/components/layouts/AppHeader';
 import { ScreenWrapper } from '../../../src/components/navigation/ScreenWrapper';
 import Card from '../../../src/components/ui/Card';
 import { borderRadius, shadows, spacing, typography } from '../../../src/constants/designSystem';
-import { DEFAULT_USER_SETTINGS } from '../../../src/types/settings';
-import { showErrorAlert, showSuccessAlert } from '../../../src/utils/alert.service';
-import { useAuthStore } from '../../../src/stores/authStore';
 import { getUserSettings, updateUserSettings } from '../../../src/services/settings/user-settings.service';
+import { useAuthStore } from '../../../src/stores/authStore';
+import { DEFAULT_USER_SETTINGS } from '../../../src/types/settings';
+import { showErrorAlert } from '../../../src/utils/alert.service';
 
 interface NotificationPreferences {
   enabled: boolean;

@@ -64,6 +64,26 @@ export default function SubscriptionScreen() {
     }
   }, [user, refreshSubscription]);
 
+  // Obtener información del período actual
+  const getCurrentPeriodInfo = () => {
+    if (!subscriptionInfo?.period || subscriptionInfo.period === 'unknown') {
+      return { suffix: '/mes', label: 'Mensual' };
+    }
+    
+    switch (subscriptionInfo.period) {
+      case 'monthly':
+        return { suffix: '/mes', label: 'Mensual' };
+      case 'quarterly':
+        return { suffix: '/trimestre', label: 'Trimestral' };
+      case 'annual':
+        return { suffix: '/año', label: 'Anual' };
+      default:
+        return { suffix: '/mes', label: 'Mensual' };
+    }
+  };
+
+  const currentPeriod = getCurrentPeriodInfo();
+
   // Información de planes
   const PLAN_INFO = {
     [SubscriptionPlan.FREE]: {
@@ -75,10 +95,10 @@ export default function SubscriptionScreen() {
     },
     [SubscriptionPlan.BASIC]: {
       name: 'Básico',
-      price: '$19.99',
-      period: '/mes',
+      price: subscriptionInfo?.period === 'quarterly' ? '$49.99' : subscriptionInfo?.period === 'annual' ? '$199.99' : '$19.99',
+      period: subscriptionInfo?.plan === SubscriptionPlan.BASIC ? currentPeriod.suffix : '/mes',
       color: colors.primary[500],
-      description: 'Para granjas pequeñas',
+      description: subscriptionInfo?.plan === SubscriptionPlan.BASIC && subscriptionInfo?.period !== 'monthly' && subscriptionInfo?.period !== 'unknown' ? `Plan ${currentPeriod.label}` : 'Para granjas pequeñas',
     },
     [SubscriptionPlan.PRO]: {
       name: 'Profesional',
@@ -157,6 +177,7 @@ export default function SubscriptionScreen() {
     newPlan: SubscriptionPlan;
     previousPlan?: SubscriptionPlan;
   } | null>(null);
+  const [showPlanUpgradeModal, setShowPlanUpgradeModal] = useState(false);
 
   /**
    * Muestra el paywall de RevenueCat
@@ -924,6 +945,101 @@ export default function SubscriptionScreen() {
           </View>
         </Modal>
 
+        {/* Modal para elegir plan antes de mejorar */}
+        <Modal
+          visible={showPlanUpgradeModal}
+          animationType="slide"
+          transparent={true}
+          onRequestClose={() => setShowPlanUpgradeModal(false)}
+        >
+          <View style={styles.modalOverlay}>
+            <View style={[styles.modalContainer, { backgroundColor: colors.background.primary }]}>
+              <View style={styles.modalHeader}>
+                <Text style={[styles.modalTitle, { color: colors.text.primary }]}>
+                  {currentPlan === SubscriptionPlan.FREE ? 'Elige tu Plan' : 'Cambiar de Plan'}
+                </Text>
+                <TouchableOpacity onPress={() => setShowPlanUpgradeModal(false)}>
+                  <Ionicons name="close" size={24} color={colors.text.primary} />
+                </TouchableOpacity>
+              </View>
+
+              <ScrollView
+                style={styles.modalScrollView}
+                contentContainerStyle={styles.modalScrollContent}
+                showsVerticalScrollIndicator={false}
+              >
+                {/* Mostrar solo planes superiores al actual */}
+                {Object.values(SubscriptionPlan)
+                  .filter(plan => {
+                    if (currentPlan === SubscriptionPlan.FREE) return plan !== SubscriptionPlan.FREE;
+                    if (currentPlan === SubscriptionPlan.BASIC) return plan === SubscriptionPlan.PRO || plan === SubscriptionPlan.ENTERPRISE;
+                    if (currentPlan === SubscriptionPlan.PRO) return plan === SubscriptionPlan.ENTERPRISE;
+                    return false;
+                  })
+                  .map(plan => (
+                    <TouchableOpacity
+                      key={plan}
+                      style={[
+                        styles.planOptionCard,
+                        {
+                          backgroundColor: colors.background.secondary,
+                          borderColor: selectedPlan === plan ? PLAN_INFO[plan].color : colors.border.light,
+                          borderWidth: selectedPlan === plan ? 2 : 1,
+                        },
+                      ]}
+                      onPress={() => setSelectedPlan(plan)}
+                      activeOpacity={0.7}
+                    >
+                      <View style={styles.planOptionHeader}>
+                        <View>
+                          <Text style={[styles.planOptionName, { color: PLAN_INFO[plan].color }]}>
+                            {PLAN_INFO[plan].name}
+                          </Text>
+                          <Text style={[styles.planOptionPrice, { color: colors.text.primary }]}>
+                            {PLAN_INFO[plan].price}{PLAN_INFO[plan].period}
+                          </Text>
+                        </View>
+                        {selectedPlan === plan && (
+                          <Ionicons name="checkmark-circle" size={28} color={PLAN_INFO[plan].color} />
+                        )}
+                      </View>
+                      <Text style={[styles.planOptionDescription, { color: colors.text.secondary }]}>
+                        {PLAN_INFO[plan].description}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+              </ScrollView>
+
+              <View style={[styles.modalFooter, { borderTopColor: colors.border.light }]}>
+                <Button
+                  title="Cancelar"
+                  onPress={() => {
+                    setShowPlanUpgradeModal(false);
+                    setSelectedPlan(null);
+                  }}
+                  variant="outline"
+                  style={styles.modalButton}
+                />
+                <Button
+                  title={isPurchasing ? 'Procesando...' : 'Continuar'}
+                  onPress={async () => {
+                    if (!selectedPlan) {
+                      Alert.alert('Selecciona un plan', 'Por favor, selecciona un plan para continuar.');
+                      return;
+                    }
+                    setShowPlanUpgradeModal(false);
+                    await handleShowPaywall();
+                  }}
+                  variant="primary"
+                  style={styles.modalButton}
+                  loading={isPurchasing}
+                  disabled={!selectedPlan || isPurchasing}
+                />
+              </View>
+            </View>
+          </View>
+        </Modal>
+
         {/* Sheet de bienvenida después de compra exitosa */}
         {successSheetData && (
           <SubscriptionSuccessSheet
@@ -1279,6 +1395,29 @@ const styles = StyleSheet.create({
   },
   modalButton: {
     flex: 1,
+  },
+  planOptionCard: {
+    padding: spacing[4],
+    borderRadius: borderRadius.lg,
+    marginBottom: spacing[3],
+  },
+  planOptionHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: spacing[2],
+  },
+  planOptionName: {
+    fontSize: typography.sizes.xl,
+    fontWeight: typography.weights.bold as '700',
+    marginBottom: spacing[1],
+  },
+  planOptionPrice: {
+    fontSize: typography.sizes.lg,
+    fontWeight: typography.weights.semibold as '600',
+  },
+  planOptionDescription: {
+    fontSize: typography.sizes.sm,
   },
 
   bottomSpacing: {

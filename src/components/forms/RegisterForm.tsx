@@ -20,16 +20,14 @@ import { useMultiTenantAuthStore } from '../../stores/multiTenantAuthStore';
 import { Button } from '../ui/Button';
 import { Input } from '../ui/Input';
 
-type FieldKey = 'email' | 'password' | 'confirmPassword' | 'displayName' | 'organizationName' | 'organizationDisplayName';
-type StepKey = 'intro' | 'contact' | 'organization' | 'security' | 'review';
+type FieldKey = 'email' | 'password' | 'confirmPassword' | 'displayName';
+type StepKey = 'intro' | 'contact' | 'security' | 'review';
 
 interface FormErrors {
   email?: string;
   password?: string;
   confirmPassword?: string;
   displayName?: string;
-  organizationName?: string;
-  organizationDisplayName?: string;
 }
 
 interface StepConfig {
@@ -70,17 +68,6 @@ const steps: StepConfig[] = [
     ],
   },
   {
-    key: 'organization',
-    title: 'Nombra tu organización',
-    description: 'Así veremos tu cuenta y tus equipos.',
-    icon: 'business-outline',
-    helper: 'Puedes cambiar el nombre visible más adelante.',
-    fields: [
-      { key: 'organizationName', label: 'Nombre de la granja/empresa', placeholder: 'Granja Los Andes' },
-      { key: 'organizationDisplayName', label: 'Nombre visible (opcional)', placeholder: 'Equipo Los Andes', optional: true },
-    ],
-  },
-  {
     key: 'security',
     title: 'Crea tu llave de acceso',
     description: 'Protegemos tus datos con buenas prácticas.',
@@ -93,19 +80,18 @@ const steps: StepConfig[] = [
   },
   {
     key: 'review',
-    title: 'Listo para lanzar tu espacio',
-    description: 'Revisa rápido y acepta términos para continuar.',
+    title: 'Listo para comenzar',
+    description: 'Revisa rápido y acepta términos para continuar. Crearás tu granja al entrar a la app.',
     icon: 'rocket-outline',
   },
 ];
 
-const stepFieldMap: Record<StepKey, FieldKey[]> = {
-  intro: ['displayName'],
-  contact: ['email'],
-  organization: ['organizationName', 'organizationDisplayName'],
-  security: ['password', 'confirmPassword'],
-  review: [],
-};
+  const stepFieldMap: Record<StepKey, FieldKey[]> = {
+    intro: ['displayName'],
+    contact: ['email'],
+    security: ['password', 'confirmPassword'],
+    review: [],
+  };
 
 export const RegisterForm: React.FC = () => {
   const [formData, setFormData] = useState({
@@ -113,8 +99,6 @@ export const RegisterForm: React.FC = () => {
     password: '',
     confirmPassword: '',
     displayName: '',
-    organizationName: '',
-    organizationDisplayName: '',
   });
   
   const [showPassword, setShowPassword] = useState(false);
@@ -127,7 +111,7 @@ export const RegisterForm: React.FC = () => {
   const stepFade = useRef(new Animated.Value(1)).current;
   
   const router = useRouter();
-  const { registerWithOrganization, isLoading, error, clearError } = useMultiTenantAuthStore();
+  const { registerUser, isLoading, error, clearError } = useMultiTenantAuthStore();
 
   useEffect(() => {
     Animated.timing(progressAnim, {
@@ -163,13 +147,6 @@ export const RegisterForm: React.FC = () => {
       }
     }
 
-    if (fields.includes('organizationName')) {
-      if (!formData.organizationName) {
-        newErrors.organizationName = 'Nombre de organización es requerido';
-      } else if (formData.organizationName.length < 2) {
-        newErrors.organizationName = 'Usa al menos 2 caracteres';
-      }
-    }
 
     if (fields.includes('password')) {
       if (!formData.password) {
@@ -244,21 +221,20 @@ export const RegisterForm: React.FC = () => {
     }
 
     try {
-      await registerWithOrganization({
+      await registerUser({
         email: formData.email,
         password: formData.password,
         displayName: formData.displayName,
-        organizationName: generateOrganizationSlug(formData.organizationName),
-        organizationDisplayName: formData.organizationDisplayName || formData.organizationName,
       });
       
       Alert.alert(
         '¡Registro Exitoso!',
-        'Tu espacio y organización han sido creados.',
+        'Tu cuenta ha sido creada. Al entrar a la app podrás crear tu primera granja.',
         [{ text: 'Comenzar', onPress: () => router.replace('/(tabs)') }]
       );
     } catch (error: any) {
       console.error('Error en registro:', error);
+      Alert.alert('Error', error.message || 'No se pudo completar el registro. Por favor intenta nuevamente.');
     }
   };
 
@@ -268,10 +244,6 @@ export const RegisterForm: React.FC = () => {
 
   const updateFormData = (field: keyof typeof formData, value: string) => {
     setFormData(prev => ({ ...prev, [field]: value }));
-    
-    if (field === 'organizationName' && !formData.organizationDisplayName) {
-      setFormData(prev => ({ ...prev, organizationDisplayName: value }));
-    }
     
     if (errors[field as keyof FormErrors]) {
       setErrors(prev => ({ ...prev, [field]: undefined }));
@@ -375,20 +347,6 @@ export const RegisterForm: React.FC = () => {
         </TouchableOpacity>
       </View>
 
-      <View style={styles.reviewRow}>
-        <View style={styles.reviewIcon}>
-          <Ionicons name="business" size={18} color={colors.primary[600]} />
-        </View>
-        <View style={styles.reviewCopy}>
-          <Text style={styles.reviewTitle}>{formData.organizationName || 'Nombra tu organización'}</Text>
-          <Text style={styles.reviewSubtitle}>
-            {formData.organizationDisplayName || 'Nombre visible (opcional)'}
-          </Text>
-        </View>
-        <TouchableOpacity onPress={() => setCurrentStep(2)}>
-          <Text style={styles.editLink}>Editar</Text>
-        </TouchableOpacity>
-      </View>
 
       <View style={styles.termsContainer}>
         <TouchableOpacity 

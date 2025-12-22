@@ -16,6 +16,7 @@ import {
   writeBatch
 } from 'firebase/firestore';
 import { db } from '../components/config/firebase';
+import { organizationService } from './organization.service';
 import { FarmAccess, FarmRole } from '../types/account';
 import { AccessRequestStatus, Collaborator, FarmAccessRequest } from '../types/collaborator';
 import { DEFAULT_FARM_SETTINGS, Farm, SUBSCRIPTION_LIMITS, SubscriptionPlan } from '../types/farm';
@@ -52,6 +53,56 @@ export const createFarm = async (name: string, ownerId: string): Promise<Farm> =
   try {
     console.log('🏢 FarmService: Creando granja:', name);
     
+    // Verificar si el usuario ya tiene una organización
+    const { organizationService } = await import('./organization.service');
+    let currentOrg = null;
+    try {
+      currentOrg = await organizationService.getCurrentOrganization();
+    } catch (error) {
+      console.log('ℹ️ Usuario no tiene organización aún, se creará automáticamente');
+    }
+
+    // Si no tiene organización, crear una automáticamente
+    if (!currentOrg) {
+      console.log('🏢 Creando organización automáticamente para usuario:', ownerId);
+      
+      // Obtener datos del usuario para la organización
+      const userDoc = await getDoc(doc(db, 'users', ownerId));
+      const userData = userDoc.data();
+      
+      // Crear organización con el nombre de la granja
+      currentOrg = await organizationService.createOrganization({
+        name: name.trim().toLowerCase().replace(/\s+/g, '-'),
+        displayName: name.trim(),
+        description: `Organización para ${name.trim()}`,
+        businessInfo: {
+          email: userData?.email || '',
+        },
+      });
+      
+      console.log('✅ Organización creada automáticamente:', currentOrg.id);
+      
+      // Actualizar el usuario para vincularlo con la organización
+      // Esto se hace automáticamente en createOrganization, pero verificamos
+      const { multiTenantAuthService } = await import('./multiTenantAuth.service');
+      try {
+        const updatedUser = await multiTenantAuthService.getCurrentUser();
+        if (updatedUser && !updatedUser.currentOrganizationId) {
+          // Si por alguna razón no se actualizó, actualizar manualmente
+          await updateDoc(doc(db, 'users', ownerId), {
+            currentOrganizationId: currentOrg.id,
+            [`organizations.${currentOrg.id}`]: {
+              role: 'admin',
+              joinedAt: serverTimestamp(),
+              isActive: true,
+            },
+          });
+        }
+      } catch (error) {
+        console.warn('⚠️ No se pudo actualizar usuario con organización:', error);
+      }
+    }
+
     // Generar farmCode único
     const farmCode = await generateUniqueFarmCode();
     

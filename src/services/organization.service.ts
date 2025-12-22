@@ -34,6 +34,7 @@ class OrganizationService {
   private readonly COLLECTIONS = {
     ORGANIZATIONS: 'organizations',
     USER_ORGANIZATIONS: 'user_organizations',
+    USERS: 'users',
     INVITATIONS: 'invitations'
   };
 
@@ -147,6 +148,22 @@ class OrganizationService {
         ...orgUser,
         joinedAt: serverTimestamp()
       });
+
+      // Actualizar el documento del usuario en la colección users
+      const userRef = doc(db, this.COLLECTIONS.USERS, userId);
+      const userDoc = await transaction.get(userRef);
+      
+      if (userDoc.exists()) {
+        const userData = userDoc.data();
+        transaction.update(userRef, {
+          currentOrganizationId: orgRef.id,
+          [`organizations.${orgRef.id}`]: {
+            role: OrganizationRole.ADMIN,
+            joinedAt: now,
+            isActive: true,
+          },
+        });
+      }
 
       return newOrg;
     });

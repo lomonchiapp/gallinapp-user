@@ -24,6 +24,11 @@ interface MultiTenantAuthState {
   // Acciones de autenticación
   signIn: (email: string, password: string) => Promise<void>;
   signInWithGoogle: (idToken: string) => Promise<void>;
+  registerUser: (data: {
+    email: string;
+    password: string;
+    displayName: string;
+  }) => Promise<void>;
   registerWithOrganization: (data: {
     email: string;
     password: string;
@@ -115,6 +120,28 @@ export const useMultiTenantAuthStore = create<MultiTenantAuthState>()(
           set({
             isLoading: false,
             error: error.message || 'Error al iniciar sesión con Google'
+          });
+          throw error;
+        }
+      },
+
+      registerUser: async (data) => {
+        try {
+          set({ isLoading: true, error: null });
+          
+          const user = await multiTenantAuthService.registerUser(data);
+          
+          set({ 
+            user, 
+            currentOrganization: null, // No hay organización aún
+            isLoading: false,
+            error: null 
+          });
+        } catch (error: any) {
+          console.error('Error en registerUser:', error);
+          set({
+            isLoading: false,
+            error: error.message || 'Error al registrar usuario'
           });
           throw error;
         }

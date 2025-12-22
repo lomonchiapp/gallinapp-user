@@ -86,16 +86,15 @@ class MultiTenantAuthService {
   }
 
   /**
-   * Registra un nuevo usuario y crea su primera organización
+   * Registra un nuevo usuario sin crear organización
+   * La organización/granja se creará cuando el usuario entre a la app por primera vez
    */
-  async registerWithOrganization(data: {
+  async registerUser(data: {
     email: string;
     password: string;
     displayName: string;
-    organizationName: string;
-    organizationDisplayName: string;
-  }): Promise<{ user: MultiTenantUser; organization: Organization }> {
-    const { email, password, displayName, organizationName, organizationDisplayName } = data;
+  }): Promise<MultiTenantUser> {
+    const { email, password, displayName } = data;
 
     try {
       // Crear usuario en Firebase Auth
@@ -112,88 +111,22 @@ class MultiTenantAuthService {
         displayName,
       });
 
-      // Crear usuario y organización en transacción
-      const result = await runTransaction(db, async (transaction) => {
+      // Crear usuario en transacción
+      const user = await runTransaction(db, async (transaction) => {
         const userId = firebaseUser.uid;
         const now = new Date();
 
-        // Crear organización - usar collection() para obtener referencia correcta
-        const orgRef = doc(collection(db, this.COLLECTIONS.ORGANIZATIONS));
-        const organization: Organization = {
-          id: orgRef.id,
-          name: organizationName,
-          displayName: organizationDisplayName,
-          description: '',
-          businessInfo: {
-            nit: '',
-            address: '',
-            phone: '',
-            email: email,
-            website: '',
-            logo: '',
-          },
-          settings: {
-            defaultEggPrice: 8.0,
-            defaultChickenPricePerPound: 65.0,
-            defaultLevantePricePerUnit: 150.0,
-            eggsPerBox: 30,
-            israeliGrowthDays: 45,
-            engordeGrowthDays: 42,
-            targetEngordeWeight: 4.5,
-            acceptableMortalityRate: 5.0,
-            invoiceSettings: {
-              prefix: 'GAL',
-              nextNumber: 1,
-              format: '{prefix}-{number}',
-              taxRate: 0,
-              currency: 'DOP',
-            },
-            notifications: {
-              alertsEnabled: true,
-              emailNotifications: true,
-              smsNotifications: false,
-              pushNotifications: true,
-            },
-          },
-          subscription: {
-            plan: SubscriptionPlan.FREE,
-            status: SubscriptionStatus.ACTIVE,
-            startDate: now,
-            limits: SUBSCRIPTION_LIMITS[SubscriptionPlan.FREE],
-          },
-          createdBy: userId,
-          createdAt: now,
-          updatedAt: now,
-          isActive: true,
-        };
-
-        // Limpiar campos undefined antes de guardar en Firestore
-        const orgData = this.removeUndefinedFields({
-          ...organization,
-          createdAt: serverTimestamp(),
-          updatedAt: serverTimestamp(),
-        });
-
-        transaction.set(orgRef, orgData);
-
-        // Crear perfil de usuario
+        // Crear perfil de usuario SIN organización
         const userRef = doc(db, this.COLLECTIONS.USERS, userId);
         const user: MultiTenantUser = {
           uid: userId,
           email: email,
           displayName: displayName,
           photoURL: firebaseUser.photoURL || undefined,
-          globalRole: UserRole.ADMIN,
+          globalRole: UserRole.OPERADOR, // No ADMIN por defecto
           lastLogin: now,
           createdAt: now,
-          currentOrganizationId: organization.id,
-          organizations: {
-            [organization.id]: {
-              role: OrganizationRole.ADMIN,
-              joinedAt: now,
-              isActive: true,
-            },
-          },
+          // NO asignar currentOrganizationId ni organizations - se hará cuando cree su primera granja
           preferences: {
             theme: 'auto',
             language: 'es',
@@ -214,23 +147,16 @@ class MultiTenantAuthService {
 
         transaction.set(userRef, userData);
 
-        // Crear documento de organizaciones del usuario
+        // Crear documento de organizaciones del usuario vacío
+        // Se completará cuando cree su primera granja
         const userOrgRef = doc(db, this.COLLECTIONS.USER_ORGANIZATIONS, userId);
         const userOrganizations: UserOrganizations = {
           userId,
-          organizations: {
-            [organization.id]: {
-              role: OrganizationRole.ADMIN,
-              permissions: [],
-              isActive: true,
-              joinedAt: now,
-            },
-          },
-          currentOrganization: organization.id,
+          organizations: {},
+          // NO asignar currentOrganization - se hará cuando cree su primera granja
           updatedAt: now,
         };
 
-        // Limpiar campos undefined antes de guardar en Firestore
         const userOrgData = this.removeUndefinedFields({
           ...userOrganizations,
           updatedAt: serverTimestamp(),
@@ -238,15 +164,42 @@ class MultiTenantAuthService {
 
         transaction.set(userOrgRef, userOrgData);
 
-        return { user, organization };
+        return user;
       });
 
-      console.log('✅ Usuario y organización creados exitosamente');
-      return result;
+      console.log('✅ Usuario registrado exitosamente (sin organización)');
+      return user;
     } catch (error: any) {
       console.error('❌ Error en registro:', error);
       throw new Error(error.message || 'Error al registrar usuario');
     }
+  }
+
+  /**
+   * @deprecated Usar registerUser() en su lugar. La organización se crea cuando el usuario crea su primera granja.
+   */
+  async registerWithOrganization(data: {
+    email: string;
+    password: string;
+    displayName: string;
+    organizationName: string;
+    organizationDisplayName: string;
+  }): Promise<{ user: MultiTenantUser; organization: Organization }> {
+    console.warn('⚠️ registerWithOrganization está deprecado. Usa registerUser() y crea la organización después.');
+    // Por compatibilidad, crear usuario primero y luego organización
+    const user = await this.registerUser({
+      email: data.email,
+      password: data.password,
+      displayName: data.displayName,
+    });
+    
+    // Crear organización después
+    const organization = await organizationService.createOrganization({
+      name: data.organizationName,
+      displayName: data.organizationDisplayName,
+    });
+    
+    return { user, organization };
   }
 
   /**
@@ -326,82 +279,18 @@ class MultiTenantAuthService {
       const userId = firebaseUser.uid;
       const now = new Date();
 
-      // Crear organización personal - usar collection() para obtener referencia correcta
-      const orgRef = doc(collection(db, this.COLLECTIONS.ORGANIZATIONS));
-      const orgName = `${firebaseUser.displayName || 'Mi'} Granja`;
-      
-      const organization: Organization = {
-        id: orgRef.id,
-        name: orgName.toLowerCase().replace(/\s+/g, '-'),
-        displayName: orgName,
-        description: 'Organización personal',
-        businessInfo: {
-          email: firebaseUser.email || '',
-          nit: '',
-          address: '',
-          phone: '',
-          website: '',
-          logo: firebaseUser.photoURL || '',
-        },
-        settings: {
-          defaultEggPrice: 8.0,
-          defaultChickenPricePerPound: 65.0,
-          defaultLevantePricePerUnit: 150.0,
-          eggsPerBox: 30,
-          israeliGrowthDays: 45,
-          engordeGrowthDays: 42,
-          targetEngordeWeight: 4.5,
-          acceptableMortalityRate: 5.0,
-          invoiceSettings: {
-            prefix: 'GAL',
-            nextNumber: 1,
-            format: '{prefix}-{number}',
-            taxRate: 0,
-            currency: 'DOP',
-          },
-          notifications: {
-            alertsEnabled: true,
-            emailNotifications: true,
-            smsNotifications: false,
-            pushNotifications: true,
-          },
-        },
-        subscription: {
-          plan: SubscriptionPlan.FREE,
-          status: SubscriptionStatus.ACTIVE,
-          startDate: now,
-          limits: SUBSCRIPTION_LIMITS[SubscriptionPlan.FREE],
-        },
-        createdBy: userId,
-        createdAt: now,
-        updatedAt: now,
-        isActive: true,
-      };
-
-      transaction.set(orgRef, {
-        ...organization,
-        createdAt: serverTimestamp(),
-        updatedAt: serverTimestamp(),
-      });
-
-      // Crear perfil de usuario
+      // Crear perfil de usuario SIN organización
+      // La organización se creará cuando el usuario cree su primera granja
       const userRef = doc(db, this.COLLECTIONS.USERS, userId);
       const user: MultiTenantUser = {
         uid: userId,
         email: firebaseUser.email || '',
         displayName: firebaseUser.displayName || '',
         photoURL: firebaseUser.photoURL || undefined,
-        globalRole: UserRole.ADMIN,
+        globalRole: UserRole.OPERADOR, // No ADMIN por defecto
         lastLogin: now,
         createdAt: now,
-        currentOrganizationId: organization.id,
-        organizations: {
-          [organization.id]: {
-            role: OrganizationRole.ADMIN,
-            joinedAt: now,
-            isActive: true,
-          },
-        },
+        // NO asignar currentOrganizationId ni organizations - se hará cuando cree su primera granja
         preferences: {
           theme: 'auto',
           language: 'es',
@@ -421,6 +310,22 @@ class MultiTenantAuthService {
       });
 
       transaction.set(userRef, userData);
+
+      // Crear documento de organizaciones del usuario vacío
+      const userOrgRef = doc(db, this.COLLECTIONS.USER_ORGANIZATIONS, userId);
+      const userOrganizations: UserOrganizations = {
+        userId,
+        organizations: {},
+        // NO asignar currentOrganization - se hará cuando cree su primera granja
+        updatedAt: now,
+      };
+
+      const userOrgData = this.removeUndefinedFields({
+        ...userOrganizations,
+        updatedAt: serverTimestamp(),
+      });
+
+      transaction.set(userOrgRef, userOrgData);
 
       return user;
     });

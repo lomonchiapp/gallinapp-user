@@ -203,3 +203,4 @@ Este error significa que el package name o SHA-1 no coinciden. Verifica:
 
 **Última actualización:** Diciembre 2025
 
+

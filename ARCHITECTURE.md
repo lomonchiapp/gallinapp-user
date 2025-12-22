@@ -309,3 +309,4 @@ Los documentos relacionados (lotes, ventas, etc.) deben actualizarse:
 - [Servicio de Migración](./src/services/migration/organization-to-farm.migration.ts)
 
 
+

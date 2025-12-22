@@ -52,6 +52,7 @@ interface SubscriptionInfo {
   currentPeriodEnd?: Date;
   cancelAtPeriodEnd?: boolean;
   trialEnd?: Date;
+  period?: 'monthly' | 'quarterly' | 'annual' | 'unknown';
 }
 
 class SubscriptionService {
@@ -324,9 +325,18 @@ class SubscriptionService {
         console.log('📱 Suscripciones activas:', customerInfo.activeSubscriptions || []);
       }
 
+      // Detectar período de facturación
+      let period: 'monthly' | 'quarterly' | 'annual' | 'unknown' = 'unknown';
+      if (entitlement) {
+        period = this.getSubscriptionPeriod(entitlement.productIdentifier);
+      } else if (customerInfo.activeSubscriptions && customerInfo.activeSubscriptions.length > 0) {
+        period = this.getSubscriptionPeriod(customerInfo.activeSubscriptions[0]);
+      }
+
       console.log('📊 Subscription info final:', {
         plan: currentPlan,
         status,
+        period,
         hasEntitlement: !!entitlement
       });
 
@@ -335,7 +345,8 @@ class SubscriptionService {
         status,
         currentPeriodEnd,
         trialEnd,
-        cancelAtPeriodEnd: status === SubscriptionStatus.CANCELLED
+        cancelAtPeriodEnd: status === SubscriptionStatus.CANCELLED,
+        period,
       };
     } catch (error: any) {
       console.error('❌ Error obteniendo info de suscripción:', {

@@ -13,6 +13,7 @@ interface SubscriptionInfo {
   currentPeriodEnd?: Date;
   cancelAtPeriodEnd?: boolean;
   trialEnd?: Date;
+  period?: 'monthly' | 'quarterly' | 'annual' | 'unknown';
 }
 
 interface PresentPaywallResult {

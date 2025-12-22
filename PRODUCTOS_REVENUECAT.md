@@ -298,3 +298,4 @@ Prueba al menos uno de cada tipo:
 - [iOS Subscription Groups](https://developer.apple.com/app-store/subscriptions/)
 - [Android Subscription Upgrades](https://developer.android.com/google/play/billing/subscriptions)
 
+
